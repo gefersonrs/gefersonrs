@@ -1,0 +1,158 @@
+:root {
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --control-bg: #f0f0f0;
+    --control-hover: #e0e0e0;
+}
+
+[data-theme="dark"] {
+    --bg-color: #1a1a1a;
+    --text-color: #ffffff;
+    --control-bg: #333333;
+    --control-hover: #444444;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.upload-section {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+#file-input {
+    display: none;
+}
+
+.upload-button {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.upload-button:hover {
+    background-color: #0056b3;
+}
+
+.controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.font-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.control-button {
+    padding: 10px;
+    border: none;
+    background-color: var(--control-bg);
+    color: var(--text-color);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.control-button:hover {
+    background-color: var(--control-hover);
+}
+
+.loading, .error {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    font-size: 1.2em;
+    color: var(--text-color);
+}
+
+.error {
+    color: #ff4444;
+}
+
+.viewer {
+    width: 100%;
+    height: 80vh;
+    border: 1px solid #ccc;
+    margin-top: 20px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    overflow: auto;
+    position: relative;
+    z-index: 1;
+}
+
+/* Style for the epub.js iframe */
+.viewer iframe {
+    width: 100%;
+    min-height: 100%;
+    border: none;
+    position: relative;
+    z-index: 2;
+}
+
+#toc-container {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 250px;
+    height: 100vh;
+    background: var(--bg-color);
+    border-right: 1px solid #ccc;
+    padding: 20px;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+}
+
+#toc-container.active {
+    transform: translateX(0);
+}
+
+#toc-container h3 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ccc;
+}
+
+#toc-container ul {
+    list-style: none;
+    padding-left: 15px;
+    margin: 0;
+}
+
+#toc-container li {
+    margin: 8px 0;
+}
+
+#toc-container a {
+    color: var(--text-color);
+    text-decoration: none;
+    display: block;
+    padding: 5px;
+    border-radius: 3px;
+}
+
+#toc-container a:hover {
+    background-color: var(--control-hover);
+} 
