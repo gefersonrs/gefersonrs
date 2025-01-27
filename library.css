@@ -230,6 +230,30 @@
     background: #dc3545;
 }
 
+.control-button {
+    padding: 0.8rem;
+    border: none;
+    background: var(--control-bg);
+    color: var(--text-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.control-button:hover {
+    background: var(--primary-color);
+    color: white;
+    transform: translateY(-2px);
+}
+
+#theme-toggle {
+    width: 40px;
+    height: 40px;
+}
+
 @media (max-width: 768px) {
     .header {
         flex-direction: column;

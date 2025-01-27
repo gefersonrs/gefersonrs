@@ -38,29 +38,20 @@ class BookStorage {
             
             // Extract metadata
             const metadata = await tempBook.loaded.metadata;
-            console.log('Metadata:', metadata); // For debugging
+            console.log('Metadata:', metadata);
             
             // Get cover
             let coverUrl = null;
             try {
-                coverUrl = await tempBook.coverUrl();
-            } catch (e) {
-                console.log('No cover found in standard location');
-            }
-
-            // If no cover found, try to find first image
-            if (!coverUrl) {
-                try {
-                    const spine = tempBook.spine();
-                    for (let item of spine.items) {
-                        if (item.href.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                            coverUrl = await tempBook.archive.createUrl(item.href, { base64: true });
-                            break;
-                        }
-                    }
-                } catch (e) {
-                    console.log('No images found in spine');
+                // Try to get cover as blob URL
+                const coverBuffer = await this.extractCoverBuffer(tempBook);
+                if (coverBuffer) {
+                    // Convert array buffer to base64
+                    const base64 = await this.arrayBufferToBase64(coverBuffer);
+                    coverUrl = `data:image/jpeg;base64,${base64}`;
                 }
+            } catch (e) {
+                console.log('Error extracting cover:', e);
             }
 
             const book = {
@@ -77,7 +68,7 @@ class BookStorage {
                 addedDate: new Date().toISOString()
             };
 
-            console.log('Saving book:', book); // For debugging
+            console.log('Saving book:', book);
             await this.put(book);
             
             if (tempBook.destroy) {
@@ -91,23 +82,31 @@ class BookStorage {
         }
     }
 
-    async extractCover(book) {
+    async extractCoverBuffer(book) {
         try {
-            // Try standard cover method
-            const cover = await book.coverUrl();
-            if (cover) return cover;
+            // Try to get cover from standard location
+            const cover = await book.resources.get('cover');
+            if (cover) {
+                return await cover.getData();
+            }
 
-            // Try to get from archive
+            // Try to get from manifest
             const coverHref = book.packaging.coverPath;
             if (coverHref) {
-                return await book.archive.createUrl(coverHref, { base64: true });
+                const coverResource = await book.resources.get(coverHref);
+                if (coverResource) {
+                    return await coverResource.getData();
+                }
             }
 
             // Try spine items
             const spine = book.spine();
             for (let item of spine.items) {
                 if (item.href.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                    return await book.archive.createUrl(item.href, { base64: true });
+                    const resource = await book.resources.get(item.href);
+                    if (resource) {
+                        return await resource.getData();
+                    }
                 }
             }
             return null;
@@ -115,6 +114,19 @@ class BookStorage {
             console.error('Error extracting cover:', error);
             return null;
         }
+    }
+
+    async arrayBufferToBase64(buffer) {
+        const blob = new Blob([buffer]);
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64String = reader.result.split(',')[1];
+                resolve(base64String);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
     }
 
     async updateProgress(id, progress, currentLocation) {

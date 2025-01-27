@@ -8,6 +8,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadBooks();
     updateStats();
 
+    // Add theme toggle functionality
+    const themeToggle = document.getElementById('theme-toggle');
+    let isDarkMode = localStorage.getItem('darkMode') === 'true';
+
+    // Apply initial theme
+    if (isDarkMode) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        themeToggle.querySelector('i').classList.replace('fa-moon', 'fa-sun');
+    }
+
+    themeToggle.addEventListener('click', () => {
+        isDarkMode = !isDarkMode;
+        document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+        themeToggle.querySelector('i').classList.replace(
+            isDarkMode ? 'fa-moon' : 'fa-sun',
+            isDarkMode ? 'fa-sun' : 'fa-moon'
+        );
+        localStorage.setItem('darkMode', isDarkMode);
+    });
+
     async function loadBooks(searchTerm = '') {
         const books = await storage.getAllBooks();
         booksContainer.innerHTML = '';
