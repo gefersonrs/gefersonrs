@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB Reader</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="reader.css">
+    <!-- Add epub.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="index.html" class="back-button"><i class="fas fa-arrow-left"></i></a>
+            <h2 id="book-title">Loading...</h2>
+            <div class="reading-progress">
+                <span id="progress-text">0%</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="toc-toggle" class="control-button"><i class="fas fa-list"></i></button>
+            <button id="prev-page" class="control-button"><i class="fas fa-chevron-left"></i></button>
+            <div class="font-controls">
+                <button id="decrease-font" class="control-button"><i class="fas fa-minus"></i></button>
+                <button id="increase-font" class="control-button"><i class="fas fa-plus"></i></button>
+            </div>
+            <button id="theme-toggle" class="control-button"><i class="fas fa-moon"></i></button>
+            <button id="next-page" class="control-button"><i class="fas fa-chevron-right"></i></button>
+        </div>
+
+        <div id="viewer" class="viewer"></div>
+    </div>
+    <script src="storage.js"></script>
+    <script src="reader.js"></script>
+</body>
+</html> 
