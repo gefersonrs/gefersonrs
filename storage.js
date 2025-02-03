@@ -29,55 +29,88 @@ class BookStorage {
 
     async saveBook(file) {
         try {
+            console.log('Starting to save book:', file.name);
             const arrayBuffer = await file.arrayBuffer();
             const id = await this.generateBookId(arrayBuffer);
+            console.log('Generated book ID:', id);
             
-            // Create temporary book to extract metadata
-            const tempBook = ePub(arrayBuffer);
-            await tempBook.ready;
-            
-            // Extract metadata
-            const metadata = await tempBook.loaded.metadata;
-            console.log('Metadata:', metadata);
-            
-            // Get cover
+            const fileType = file.type === 'application/pdf' ? 'pdf' : 'epub';
+            let metadata = {};
             let coverUrl = null;
-            try {
-                // Try to get cover as blob URL
-                const coverBuffer = await this.extractCoverBuffer(tempBook);
-                if (coverBuffer) {
-                    // Convert array buffer to base64
-                    const base64 = await this.arrayBufferToBase64(coverBuffer);
-                    coverUrl = `data:image/jpeg;base64,${base64}`;
+
+            // Create a copy of the ArrayBuffer for processing
+            const processingBuffer = arrayBuffer.slice(0);
+
+            if (fileType === 'epub') {
+                const tempBook = ePub(processingBuffer);
+                await tempBook.ready;
+                metadata = await tempBook.loaded.metadata;
+                
+                try {
+                    const coverBuffer = await this.extractCoverBuffer(tempBook);
+                    if (coverBuffer) {
+                        const base64 = await this.arrayBufferToBase64(coverBuffer);
+                        coverUrl = `data:image/jpeg;base64,${base64}`;
+                    }
+                } catch (e) {
+                    console.log('Error extracting cover:', e);
                 }
-            } catch (e) {
-                console.log('Error extracting cover:', e);
+
+                if (tempBook.destroy) {
+                    tempBook.destroy();
+                }
+            } else {
+                const pdf = await pdfjsLib.getDocument(new Uint8Array(processingBuffer)).promise;
+                const metadataObj = await pdf.getMetadata();
+                metadata = {
+                    title: metadataObj.info?.Title || file.name.replace(/\.pdf$/, ''),
+                    creator: metadataObj.info?.Author || 'Unknown Author'
+                };
+
+                try {
+                    const page = await pdf.getPage(1);
+                    const viewport = page.getViewport({ scale: 0.5 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    await page.render({
+                        canvasContext: canvas.getContext('2d'),
+                        viewport: viewport
+                    }).promise;
+                    coverUrl = canvas.toDataURL();
+                } catch (e) {
+                    console.log('Error generating PDF thumbnail:', e);
+                }
             }
 
+            // Store the original ArrayBuffer as Uint8Array
+            const uint8Array = new Uint8Array(arrayBuffer);
             const book = {
                 id,
-                title: metadata.title || file.name.replace(/\.epub$/, ''),
+                title: metadata.title || file.name.replace(/\.(epub|pdf)$/, ''),
                 author: Array.isArray(metadata.creator) 
                     ? metadata.creator.join(', ')
                     : metadata.creator || 'Unknown Author',
                 coverUrl,
-                data: arrayBuffer,
+                data: Array.from(uint8Array), // Store as regular array
+                fileType,
                 lastRead: new Date().toISOString(),
                 progress: 0,
                 currentLocation: null,
                 addedDate: new Date().toISOString()
             };
 
-            console.log('Saving book:', book);
             await this.put(book);
+            console.log('Successfully saved book with ID:', id);
             
-            if (tempBook.destroy) {
-                tempBook.destroy();
-            }
+            // Verify the save by immediately retrieving
+            const savedBook = await this.get(id);
+            console.log('Verification - Retrieved saved book:', savedBook ? 'Success' : 'Failed');
             
             return id;
         } catch (error) {
-            console.error('Error in saveBook:', error);
+            console.error('Detailed error in saveBook:', error);
+            console.error('Stack trace:', error.stack);
             throw error;
         }
     }
@@ -140,14 +173,42 @@ class BookStorage {
         await this.put(book);
     }
 
+    async getBookData(book) {
+        if (Array.isArray(book.data)) {
+            // Convert array back to ArrayBuffer
+            return new Uint8Array(book.data).buffer;
+        }
+        return book.data;
+    }
+
     async get(id) {
         return new Promise((resolve, reject) => {
+            console.log('Attempting to get book with ID:', id);
             const transaction = this.db.transaction([this.storeName], 'readonly');
             const store = transaction.objectStore(this.storeName);
             const request = store.get(id);
             
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+            request.onsuccess = async () => {
+                const book = request.result;
+                console.log('Database lookup result:', book ? 'Book found' : 'Book not found');
+                if (book) {
+                    console.log('Book data type:', book.fileType);
+                    try {
+                        book.data = await this.getBookData(book);
+                        console.log('Successfully converted book data');
+                    } catch (e) {
+                        console.error('Error converting book data:', e);
+                        reject(e);
+                        return;
+                    }
+                }
+                resolve(book);
+            };
+            
+            request.onerror = (event) => {
+                console.error('Error in database lookup:', event.target.error);
+                reject(request.error);
+            };
         });
     }
 
@@ -157,7 +218,12 @@ class BookStorage {
             const store = transaction.objectStore(this.storeName);
             const request = store.getAll();
             
-            request.onsuccess = () => resolve(request.result);
+            request.onsuccess = () => {
+                const books = request.result;
+                // Note: We don't convert Blobs to ArrayBuffers here since we don't need the data
+                // in the library view
+                resolve(books);
+            };
             request.onerror = () => reject(request.error);
         });
     }

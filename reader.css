@@ -121,4 +121,17 @@
 #toc-container a:hover {
     background: var(--primary-color);
     color: white;
+}
+
+/* PDF dark mode styles */
+#pdf-container {
+    position: relative;
+}
+
+#pdf-container.dark-mode {
+    filter: invert(1) hue-rotate(180deg);
+}
+
+#pdf-container.dark-mode #pdf-canvas {
+    filter: invert(1) hue-rotate(180deg);
 } 

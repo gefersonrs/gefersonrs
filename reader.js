@@ -5,6 +5,9 @@ class EpubReader {
         this.rendition = null;
         this.currentFontSize = 100;
         this.isDarkMode = false;
+        this.currentPdfPage = 1;
+        this.totalPdfPages = 0;
+        this.pdfDoc = null;
         
         // DOM elements
         this.viewer = document.getElementById('viewer');
@@ -26,23 +29,103 @@ class EpubReader {
             await this.storage.init();
             const bookId = new URLSearchParams(window.location.search).get('id');
             if (!bookId) {
-                throw new Error('No book ID provided');
+                throw new Error('No book ID provided in URL');
             }
+            console.log('Attempting to load book with ID:', bookId);
 
             const bookData = await this.storage.get(bookId);
+            console.log('Retrieved book data:', bookData ? 'Found' : 'Not found');
+            
             if (!bookData) {
-                throw new Error('Book not found');
+                throw new Error('Book not found in storage');
             }
 
             await this.loadBook(bookData);
             this.bindEvents();
         } catch (error) {
-            console.error('Error initializing reader:', error);
+            console.error('Detailed error in reader initialization:', error);
+            console.error('Stack trace:', error.stack);
             this.viewer.innerHTML = `<div class="error">Error: ${error.message}</div>`;
         }
     }
 
     async loadBook(bookData) {
+        try {
+            this.bookTitle.textContent = bookData.title;
+            
+            if (bookData.fileType === 'pdf') {
+                await this.loadPdf(bookData);
+            } else {
+                await this.loadEpub(bookData);
+            }
+        } catch (error) {
+            console.error('Error loading book:', error);
+            throw error;
+        }
+    }
+
+    async loadPdf(bookData) {
+        try {
+            this.pdfDoc = await pdfjsLib.getDocument(bookData.data).promise;
+            this.totalPdfPages = this.pdfDoc.numPages;
+            
+            // Create PDF viewer container
+            this.viewer.innerHTML = `
+                <div id="pdf-container" class="${this.isDarkMode ? 'dark-mode' : ''}">
+                    <canvas id="pdf-canvas"></canvas>
+                </div>
+            `;
+            
+            // Load last viewed page or first page
+            this.currentPdfPage = bookData.currentLocation || 1;
+            await this.renderPdfPage(this.currentPdfPage);
+
+            // Update progress
+            this.updatePdfProgress();
+        } catch (error) {
+            console.error('Error loading PDF:', error);
+            throw error;
+        }
+    }
+
+    async renderPdfPage(pageNumber) {
+        try {
+            const page = await this.pdfDoc.getPage(pageNumber);
+            const canvas = document.getElementById('pdf-canvas');
+            const context = canvas.getContext('2d');
+
+            // Calculate scale to fit width
+            const viewport = page.getViewport({ scale: 1 });
+            const containerWidth = this.viewer.clientWidth;
+            const scale = containerWidth / viewport.width;
+            const scaledViewport = page.getViewport({ scale });
+
+            canvas.width = scaledViewport.width;
+            canvas.height = scaledViewport.height;
+
+            await page.render({
+                canvasContext: context,
+                viewport: scaledViewport
+            }).promise;
+
+            // Save progress
+            this.storage.updateProgress(
+                new URLSearchParams(window.location.search).get('id'),
+                (pageNumber / this.totalPdfPages) * 100,
+                pageNumber
+            ).catch(console.error);
+        } catch (error) {
+            console.error('Error rendering PDF page:', error);
+        }
+    }
+
+    updatePdfProgress() {
+        const progress = Math.floor((this.currentPdfPage / this.totalPdfPages) * 100);
+        this.progressText.textContent = `${progress}%`;
+        this.progressFill.style.width = `${progress}%`;
+    }
+
+    async loadEpub(bookData) {
         try {
             this.bookTitle.textContent = bookData.title;
             
@@ -149,12 +232,24 @@ class EpubReader {
     }
 
     bindEvents() {
-        this.prevButton.addEventListener('click', () => {
-            if (this.rendition) this.rendition.prev();
+        this.prevButton.addEventListener('click', async () => {
+            if (this.pdfDoc && this.currentPdfPage > 1) {
+                this.currentPdfPage--;
+                await this.renderPdfPage(this.currentPdfPage);
+                this.updatePdfProgress();
+            } else if (this.rendition) {
+                this.rendition.prev();
+            }
         });
 
-        this.nextButton.addEventListener('click', () => {
-            if (this.rendition) this.rendition.next();
+        this.nextButton.addEventListener('click', async () => {
+            if (this.pdfDoc && this.currentPdfPage < this.totalPdfPages) {
+                this.currentPdfPage++;
+                await this.renderPdfPage(this.currentPdfPage);
+                this.updatePdfProgress();
+            } else if (this.rendition) {
+                this.rendition.next();
+            }
         });
 
         this.decreaseFontButton.addEventListener('click', () => {
@@ -174,8 +269,14 @@ class EpubReader {
         this.themeToggle.addEventListener('click', () => {
             this.isDarkMode = !this.isDarkMode;
             document.documentElement.setAttribute('data-theme', this.isDarkMode ? 'dark' : 'light');
+            
+            // Handle theme for both EPUB and PDF
             if (this.rendition) {
                 this.rendition.themes.select(this.isDarkMode ? 'dark' : 'light');
+            }
+            const pdfContainer = document.getElementById('pdf-container');
+            if (pdfContainer) {
+                pdfContainer.classList.toggle('dark-mode', this.isDarkMode);
             }
         });
 
@@ -186,10 +287,22 @@ class EpubReader {
             }
         });
 
-        document.addEventListener('keyup', (event) => {
-            if (!this.rendition) return;
-            if (event.key === 'ArrowLeft') this.rendition.prev();
-            if (event.key === 'ArrowRight') this.rendition.next();
+        document.addEventListener('keyup', async (event) => {
+            if (this.pdfDoc) {
+                if (event.key === 'ArrowLeft' && this.currentPdfPage > 1) {
+                    this.currentPdfPage--;
+                    await this.renderPdfPage(this.currentPdfPage);
+                    this.updatePdfProgress();
+                }
+                if (event.key === 'ArrowRight' && this.currentPdfPage < this.totalPdfPages) {
+                    this.currentPdfPage++;
+                    await this.renderPdfPage(this.currentPdfPage);
+                    this.updatePdfProgress();
+                }
+            } else if (this.rendition) {
+                if (event.key === 'ArrowLeft') this.rendition.prev();
+                if (event.key === 'ArrowRight') this.rendition.next();
+            }
         });
     }
 }
