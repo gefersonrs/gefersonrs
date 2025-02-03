@@ -117,32 +117,55 @@ class BookStorage {
 
     async extractCoverBuffer(book) {
         try {
-            // Try to get cover from standard location
-            const cover = await book.resources.get('cover');
-            if (cover) {
-                return await cover.getData();
-            }
+            // Try multiple methods to get the cover
+            let coverBuffer = null;
 
-            // Try to get from manifest
-            const coverHref = book.packaging.coverPath;
-            if (coverHref) {
-                const coverResource = await book.resources.get(coverHref);
-                if (coverResource) {
-                    return await coverResource.getData();
+            // Method 1: Try to get from resources with common cover IDs
+            const coverIds = ['cover', 'cover-image', 'coverimage', 'cover.jpg', 'cover.jpeg', 'cover.png'];
+            for (const id of coverIds) {
+                try {
+                    const cover = await book.resources.get(id);
+                    if (cover) {
+                        coverBuffer = await cover.getData();
+                        if (coverBuffer) break;
+                    }
+                } catch (e) {
+                    console.log(`No cover found with id: ${id}`);
                 }
             }
 
-            // Try spine items
-            const spine = book.spine();
-            for (let item of spine.items) {
-                if (item.href.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                    const resource = await book.resources.get(item.href);
-                    if (resource) {
-                        return await resource.getData();
+            // Method 2: Try to get from manifest
+            if (!coverBuffer && book.packaging.metadata.cover) {
+                try {
+                    const coverId = book.packaging.metadata.cover;
+                    const coverItem = await book.resources.get(coverId);
+                    if (coverItem) {
+                        coverBuffer = await coverItem.getData();
+                    }
+                } catch (e) {
+                    console.log('Could not get cover from metadata.cover');
+                }
+            }
+
+            // Method 3: Try to get from spine items
+            if (!coverBuffer) {
+                const spine = book.spine();
+                for (let item of spine.items) {
+                    if (item.href.match(/cover|image/i) && item.href.match(/\.(jpg|jpeg|png|gif)$/i)) {
+                        try {
+                            const resource = await book.resources.get(item.href);
+                            if (resource) {
+                                coverBuffer = await resource.getData();
+                                if (coverBuffer) break;
+                            }
+                        } catch (e) {
+                            console.log(`Could not get cover from spine item: ${item.href}`);
+                        }
                     }
                 }
             }
-            return null;
+
+            return coverBuffer;
         } catch (error) {
             console.error('Error extracting cover:', error);
             return null;

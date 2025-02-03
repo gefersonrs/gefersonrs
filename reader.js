@@ -4,7 +4,7 @@ class EpubReader {
         this.book = null;
         this.rendition = null;
         this.currentFontSize = 100;
-        this.isDarkMode = false;
+        this.isDarkMode = localStorage.getItem('darkMode') === 'true';
         this.currentPdfPage = 1;
         this.totalPdfPages = 0;
         this.pdfDoc = null;
@@ -22,6 +22,12 @@ class EpubReader {
         this.increaseFontButton = document.getElementById('increase-font');
         this.themeToggle = document.getElementById('theme-toggle');
         this.tocToggle = document.getElementById('toc-toggle');
+
+        // Apply initial theme
+        if (this.isDarkMode) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            this.themeToggle.querySelector('i').classList.replace('fa-moon', 'fa-sun');
+        }
     }
 
     async init() {
@@ -108,10 +114,15 @@ class EpubReader {
                 viewport: scaledViewport
             }).promise;
 
+            // Calculate progress ensuring it can reach 100%
+            const progress = pageNumber === this.totalPdfPages ? 
+                100 : 
+                Math.floor((pageNumber / this.totalPdfPages) * 100);
+
             // Save progress
             this.storage.updateProgress(
                 new URLSearchParams(window.location.search).get('id'),
-                (pageNumber / this.totalPdfPages) * 100,
+                progress,
                 pageNumber
             ).catch(console.error);
         } catch (error) {
@@ -171,7 +182,14 @@ class EpubReader {
 
             // Track progress
             this.rendition.on('relocated', (location) => {
-                const progress = Math.floor((location.start.percentage || 0) * 100);
+                // Calculate progress ensuring it can reach 100%
+                let progress = Math.floor((location.start.percentage || 0) * 100);
+                
+                // Check if we're at the last location
+                if (location.start.percentage > 0.995) {
+                    progress = 100;
+                }
+                
                 this.progressText.textContent = `${progress}%`;
                 this.progressFill.style.width = `${progress}%`;
                 
@@ -269,6 +287,11 @@ class EpubReader {
         this.themeToggle.addEventListener('click', () => {
             this.isDarkMode = !this.isDarkMode;
             document.documentElement.setAttribute('data-theme', this.isDarkMode ? 'dark' : 'light');
+            localStorage.setItem('darkMode', this.isDarkMode);
+            this.themeToggle.querySelector('i').classList.replace(
+                this.isDarkMode ? 'fa-moon' : 'fa-sun',
+                this.isDarkMode ? 'fa-sun' : 'fa-moon'
+            );
             
             // Handle theme for both EPUB and PDF
             if (this.rendition) {

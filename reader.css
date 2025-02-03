@@ -126,12 +126,15 @@
 /* PDF dark mode styles */
 #pdf-container {
     position: relative;
+    padding: 1rem;
+    border-radius: 8px;
 }
 
 #pdf-container.dark-mode {
-    filter: invert(1) hue-rotate(180deg);
+    background-color: #1a1a1a;
 }
 
 #pdf-container.dark-mode #pdf-canvas {
-    filter: invert(1) hue-rotate(180deg);
+    filter: invert(1);
+    mix-blend-mode: difference;
 } 
