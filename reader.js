@@ -75,10 +75,12 @@ class EpubReader {
             this.pdfDoc = await pdfjsLib.getDocument(bookData.data).promise;
             this.totalPdfPages = this.pdfDoc.numPages;
             
-            // Create PDF viewer container
+            // Create PDF viewer container with scaling wrapper
             this.viewer.innerHTML = `
                 <div id="pdf-container" class="${this.isDarkMode ? 'dark-mode' : ''}">
-                    <canvas id="pdf-canvas"></canvas>
+                    <div id="pdf-scaler">
+                        <canvas id="pdf-canvas"></canvas>
+                    </div>
                 </div>
             `;
             
@@ -271,16 +273,30 @@ class EpubReader {
         });
 
         this.decreaseFontButton.addEventListener('click', () => {
-            if (this.currentFontSize > 50 && this.rendition) {
-                this.currentFontSize -= 10;
-                this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+            if (this.rendition) {
+                if (this.currentFontSize > 50) {
+                    this.currentFontSize -= 10;
+                    this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+                }
+            } else if (this.pdfDoc) {
+                if (this.currentFontSize > 50) {
+                    this.currentFontSize -= 10;
+                    this.updatePdfScale();
+                }
             }
         });
 
         this.increaseFontButton.addEventListener('click', () => {
-            if (this.currentFontSize < 200 && this.rendition) {
-                this.currentFontSize += 10;
-                this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+            if (this.rendition) {
+                if (this.currentFontSize < 200) {
+                    this.currentFontSize += 10;
+                    this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+                }
+            } else if (this.pdfDoc) {
+                if (this.currentFontSize < 200) {
+                    this.currentFontSize += 10;
+                    this.updatePdfScale();
+                }
             }
         });
 
@@ -327,6 +343,15 @@ class EpubReader {
                 if (event.key === 'ArrowRight') this.rendition.next();
             }
         });
+    }
+
+    updatePdfScale() {
+        const scaler = document.getElementById('pdf-scaler');
+        if (scaler) {
+            const scale = this.currentFontSize / 100;
+            scaler.style.transform = `scale(${scale})`;
+            scaler.style.transformOrigin = 'top left';
+        }
     }
 }
 

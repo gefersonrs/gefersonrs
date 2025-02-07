@@ -128,6 +128,17 @@
     position: relative;
     padding: 1rem;
     border-radius: 8px;
+    overflow: auto;
+}
+
+#pdf-scaler {
+    transform-origin: top left;
+    transition: transform 0.3s ease;
+    display: inline-block; /* Important for proper scaling */
+}
+
+#pdf-canvas {
+    display: block; /* Removes bottom margin */
 }
 
 #pdf-container.dark-mode {
