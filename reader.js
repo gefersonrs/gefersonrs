@@ -72,6 +72,7 @@ class EpubReader {
 
     async loadPdf(bookData) {
         try {
+            // Ensure the correct version of PDF.js is loaded
             this.pdfDoc = await pdfjsLib.getDocument(bookData.data).promise;
             this.totalPdfPages = this.pdfDoc.numPages;
             
@@ -90,6 +91,12 @@ class EpubReader {
 
             // Update progress
             this.updatePdfProgress();
+
+            // Extract and display TOC
+            const outline = await this.pdfDoc.getOutline();
+            if (outline) {
+                this.displayPdfTOC(outline);
+            }
         } catch (error) {
             console.error('Error loading PDF:', error);
             throw error;
@@ -114,7 +121,7 @@ class EpubReader {
             await page.render({
                 canvasContext: context,
                 viewport: scaledViewport
-            }).promise;
+            }).promise();
 
             // Calculate progress ensuring it can reach 100%
             const progress = pageNumber === this.totalPdfPages ? 
@@ -207,6 +214,47 @@ class EpubReader {
             console.error('Error loading book:', error);
             throw error;
         }
+    }
+
+    displayPdfTOC(outline) {
+        const tocContainer = document.getElementById('toc-container') || this.createTOCContainer();
+        tocContainer.innerHTML = '<h3>Table of Contents</h3>';
+        const list = document.createElement('ul');
+        
+        const createTOCItem = (item) => {
+            const listItem = document.createElement('li');
+            const link = document.createElement('a');
+            link.textContent = item.title;
+            link.href = '#';
+            link.onclick = async (e) => {
+                e.preventDefault();
+                if (item.dest) {
+                    const dest = await this.pdfDoc.getDestination(item.dest);
+                    const pageNumber = await this.pdfDoc.getPageIndex(dest[0]) + 1;
+                    this.currentPdfPage = pageNumber;
+                    await this.renderPdfPage(pageNumber);
+                    this.updatePdfProgress();
+                    tocContainer.classList.remove('active');
+                }
+            };
+            listItem.appendChild(link);
+
+            if (item.items && item.items.length > 0) {
+                const subList = document.createElement('ul');
+                item.items.forEach(subItem => {
+                    subList.appendChild(createTOCItem(subItem));
+                });
+                listItem.appendChild(subList);
+            }
+
+            return listItem;
+        };
+
+        outline.forEach(item => {
+            list.appendChild(createTOCItem(item));
+        });
+        
+        tocContainer.appendChild(list);
     }
 
     displayTOC(toc) {
@@ -359,4 +407,4 @@ class EpubReader {
 document.addEventListener('DOMContentLoaded', () => {
     const reader = new EpubReader();
     reader.init();
-}); 
+});

@@ -124,9 +124,9 @@ class BookStorage {
             const coverIds = ['cover', 'cover-image', 'coverimage', 'cover.jpg', 'cover.jpeg', 'cover.png'];
             for (const id of coverIds) {
                 try {
-                    const cover = await book.resources.get(id);
+                    const cover = await book.archive.getBlob(id);
                     if (cover) {
-                        coverBuffer = await cover.getData();
+                        coverBuffer = await cover.arrayBuffer();
                         if (coverBuffer) break;
                     }
                 } catch (e) {
@@ -138,9 +138,9 @@ class BookStorage {
             if (!coverBuffer && book.packaging.metadata.cover) {
                 try {
                     const coverId = book.packaging.metadata.cover;
-                    const coverItem = await book.resources.get(coverId);
+                    const coverItem = await book.archive.getBlob(coverId);
                     if (coverItem) {
-                        coverBuffer = await coverItem.getData();
+                        coverBuffer = await coverItem.arrayBuffer();
                     }
                 } catch (e) {
                     console.log('Could not get cover from metadata.cover');
@@ -149,13 +149,13 @@ class BookStorage {
 
             // Method 3: Try to get from spine items
             if (!coverBuffer) {
-                const spine = book.spine();
-                for (let item of spine.items) {
+                const spine = book.spine;
+                for (let item of spine) {
                     if (item.href.match(/cover|image/i) && item.href.match(/\.(jpg|jpeg|png|gif)$/i)) {
                         try {
-                            const resource = await book.resources.get(item.href);
+                            const resource = await book.archive.getBlob(item.href);
                             if (resource) {
-                                coverBuffer = await resource.getData();
+                                coverBuffer = await resource.arrayBuffer();
                                 if (coverBuffer) break;
                             }
                         } catch (e) {
