@@ -34,29 +34,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         const allBooksContainer = document.getElementById('all-books-container');
         currentlyReadingContainer.innerHTML = '';
         allBooksContainer.innerHTML = '';
-
+    
         const filteredBooks = searchTerm 
             ? books.filter(book => book.title.toLowerCase().includes(searchTerm.toLowerCase()))
             : books;
-
+    
         filteredBooks.sort((a, b) => new Date(b.lastRead) - new Date(a.lastRead));
-
+    
         filteredBooks.forEach(book => {
-            const card = createBookCard(book);
             if (book.progress > 0 && book.progress < 100) {
-                currentlyReadingContainer.appendChild(card);
+                const cardForCurrentlyReading = createBookCard(book);
+                currentlyReadingContainer.appendChild(cardForCurrentlyReading);
             }
-            allBooksContainer.appendChild(card);
         });
+    
+        filteredBooks.forEach(book => {
+            const cardForAllBooks = createBookCard(book);
+            allBooksContainer.appendChild(cardForAllBooks);
+        });
+    
+        updateStats();
     }
-
+    
     function createBookCard(book) {
         const card = document.createElement('div');
         card.className = 'book-card';
         
         const progressPercent = Math.round(book.progress || 0);
         const lastReadDate = new Date(book.lastRead).toLocaleDateString();
-
+    
         card.innerHTML = `
             <div class="book-cover">
                 ${book.coverUrl 
@@ -86,25 +92,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>
             </div>
         `;
-
-        // Add event listeners
+    
         card.querySelector('.read-button').addEventListener('click', async () => {
-            window.location.href = `reader.html?id=${book.id}`;
             if (book.progress === 0) {
-                book.progress = 1; // Mark as started
+                book.progress = 1;
                 await storage.updateProgress(book.id, book.progress, book.currentLocation);
-                await loadBooks(); // Refresh the book list
+                await loadBooks();
             }
+            window.location.href = `reader.html?id=${book.id}`;
         });
-
+    
         card.querySelector('.delete-button').addEventListener('click', async () => {
             if (confirm('Are you sure you want to delete this book?')) {
                 await storage.delete(book.id);
                 await loadBooks();
-                updateStats();
             }
         });
-
+    
         return card;
     }
 
