@@ -30,7 +30,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function loadBooks(searchTerm = '') {
         const books = await storage.getAllBooks();
-        booksContainer.innerHTML = '';
+        const currentlyReadingContainer = document.getElementById('currently-reading-container');
+        const allBooksContainer = document.getElementById('all-books-container');
+        currentlyReadingContainer.innerHTML = '';
+        allBooksContainer.innerHTML = '';
 
         const filteredBooks = searchTerm 
             ? books.filter(book => book.title.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -40,7 +43,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         filteredBooks.forEach(book => {
             const card = createBookCard(book);
-            booksContainer.appendChild(card);
+            if (book.progress > 0 && book.progress < 100) {
+                currentlyReadingContainer.appendChild(card);
+            }
+            allBooksContainer.appendChild(card);
         });
     }
 
@@ -82,8 +88,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
 
         // Add event listeners
-        card.querySelector('.read-button').addEventListener('click', () => {
+        card.querySelector('.read-button').addEventListener('click', async () => {
             window.location.href = `reader.html?id=${book.id}`;
+            if (book.progress === 0) {
+                book.progress = 1; // Mark as started
+                await storage.updateProgress(book.id, book.progress, book.currentLocation);
+                await loadBooks(); // Refresh the book list
+            }
         });
 
         card.querySelector('.delete-button').addEventListener('click', async () => {

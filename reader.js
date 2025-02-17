@@ -3,7 +3,7 @@ class EpubReader {
         this.storage = new BookStorage();
         this.book = null;
         this.rendition = null;
-        this.currentFontSize = 100;
+        this.currentFontSize = parseInt(localStorage.getItem('fontSize')) || 100;
         this.isDarkMode = localStorage.getItem('darkMode') === 'true';
         this.currentPdfPage = 1;
         this.totalPdfPages = 0;
@@ -95,7 +95,7 @@ class EpubReader {
             // Extract and display TOC
             const outline = await this.pdfDoc.getOutline();
             if (outline) {
-                this.displayPdfTOC(outline);
+                await this.displayPdfTOC(outline);
             }
         } catch (error) {
             console.error('Error loading PDF:', error);
@@ -216,7 +216,7 @@ class EpubReader {
         }
     }
 
-    displayPdfTOC(outline) {
+    async displayPdfTOC(outline) {
         const tocContainer = document.getElementById('toc-container') || this.createTOCContainer();
         tocContainer.innerHTML = '<h3>Table of Contents</h3>';
         const list = document.createElement('ul');
@@ -325,11 +325,13 @@ class EpubReader {
                 if (this.currentFontSize > 50) {
                     this.currentFontSize -= 10;
                     this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+                    localStorage.setItem('fontSize', this.currentFontSize);
                 }
             } else if (this.pdfDoc) {
                 if (this.currentFontSize > 50) {
                     this.currentFontSize -= 10;
                     this.updatePdfScale();
+                    localStorage.setItem('fontSize', this.currentFontSize);
                 }
             }
         });
@@ -339,11 +341,13 @@ class EpubReader {
                 if (this.currentFontSize < 200) {
                     this.currentFontSize += 10;
                     this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+                    localStorage.setItem('fontSize', this.currentFontSize);
                 }
             } else if (this.pdfDoc) {
                 if (this.currentFontSize < 200) {
                     this.currentFontSize += 10;
                     this.updatePdfScale();
+                    localStorage.setItem('fontSize', this.currentFontSize);
                 }
             }
         });

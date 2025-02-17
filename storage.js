@@ -117,59 +117,16 @@ class BookStorage {
 
     async extractCoverBuffer(book) {
         try {
-            // Try multiple methods to get the cover
-            let coverBuffer = null;
-
-            // Method 1: Try to get from resources with common cover IDs
-            const coverIds = ['cover', 'cover-image', 'coverimage', 'cover.jpg', 'cover.jpeg', 'cover.png'];
-            for (const id of coverIds) {
-                try {
-                    const cover = await book.archive.getBlob(id);
-                    if (cover) {
-                        coverBuffer = await cover.arrayBuffer();
-                        if (coverBuffer) break;
-                    }
-                } catch (e) {
-                    console.log(`No cover found with id: ${id}`);
-                }
+            const coverUrl = await book.coverUrl();
+            if (coverUrl) {
+                const response = await fetch(coverUrl);
+                const coverBuffer = await response.arrayBuffer();
+                return coverBuffer;
             }
-
-            // Method 2: Try to get from manifest
-            if (!coverBuffer && book.packaging.metadata.cover) {
-                try {
-                    const coverId = book.packaging.metadata.cover;
-                    const coverItem = await book.archive.getBlob(coverId);
-                    if (coverItem) {
-                        coverBuffer = await coverItem.arrayBuffer();
-                    }
-                } catch (e) {
-                    console.log('Could not get cover from metadata.cover');
-                }
-            }
-
-            // Method 3: Try to get from spine items
-            if (!coverBuffer) {
-                const spine = book.spine;
-                for (let item of spine) {
-                    if (item.href.match(/cover|image/i) && item.href.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                        try {
-                            const resource = await book.archive.getBlob(item.href);
-                            if (resource) {
-                                coverBuffer = await resource.arrayBuffer();
-                                if (coverBuffer) break;
-                            }
-                        } catch (e) {
-                            console.log(`Could not get cover from spine item: ${item.href}`);
-                        }
-                    }
-                }
-            }
-
-            return coverBuffer;
         } catch (error) {
             console.error('Error extracting cover:', error);
-            return null;
         }
+        return null;
     }
 
     async arrayBufferToBase64(buffer) {
