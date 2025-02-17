@@ -23,6 +23,9 @@
     font-size: 1.5rem;
     font-weight: 600;
     color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .reading-progress {
@@ -87,6 +90,7 @@
 
 .font-controls {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
 }
 
@@ -113,39 +117,247 @@
 }
 
 #toc-container a {
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
+    color: var(--text-color);
+    text-decoration: none;
+    display: block;
+    padding: 8px 12px;
+    margin: 2px 0;
+    border-radius: 4px;
     transition: all 0.2s ease;
 }
 
 #toc-container a:hover {
-    background: var(--primary-color);
+    background-color: var(--control-hover);
+}
+
+#toc-container a.current-chapter {
+    background-color: var(--primary-color);
     color: white;
+    font-weight: bold;
 }
 
 /* PDF dark mode styles */
 #pdf-container {
-    position: relative;
-    padding: 1rem;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    background: var(--bg-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 0;
+}
+
+#pdf-pages-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+}
+
+.pdf-page-container {
+    width: 80%;
+    display: flex;
+    justify-content: center;
+    background: var(--bg-color);
     border-radius: 8px;
-    overflow: auto;
+    box-shadow: var(--card-shadow);
+    padding: 1rem;
 }
 
-#pdf-scaler {
-    transform-origin: top left;
-    transition: transform 0.3s ease;
-    display: inline-block; /* Important for proper scaling */
+.pdf-page-container canvas {
+    max-width: 100%;
+    height: auto;
+    background-color: white;
 }
 
-#pdf-canvas {
-    display: block; /* Removes bottom margin */
-}
-
+/* Dark mode styles */
 #pdf-container.dark-mode {
+    background-color: var(--bg-color);
+}
+
+#pdf-container.dark-mode .pdf-page-container {
+    background-color: var(--bg-color);
+}
+
+#pdf-container.dark-mode canvas {
+    filter: invert(1) brightness(0.9) contrast(0.95);
     background-color: #1a1a1a;
 }
 
-#pdf-container.dark-mode #pdf-canvas {
-    filter: invert(1);
-    mix-blend-mode: difference;
+/* Hide navigation buttons for PDF */
+.pdf-mode .navigation-controls {
+    display: none;
+}
+
+.reader-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-color);
+}
+
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--control-bg);
+    z-index: 100;
+}
+
+.left-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.right-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.reading-progress {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 0 2rem;
+    max-width: 500px;
+}
+
+.navigation-controls {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%);
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 50;
+}
+
+.nav-button {
+    background: var(--bg-color);
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: all 0.3s ease;
+    pointer-events: auto;
+    margin: 0 1rem;
+    box-shadow: var(--card-shadow);
+}
+
+.nav-button:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.settings-panel {
+    position: fixed;
+    top: 60px;
+    right: 1rem;
+    background: var(--bg-color);
+    border-radius: 8px;
+    box-shadow: var(--card-shadow);
+    padding: 1rem;
+    z-index: 1000;
+    width: 300px;
+    transform: translateY(-120%);
+    transition: transform 0.3s ease;
+    border: 1px solid var(--control-bg);
+}
+
+.settings-panel.active {
+    transform: translateY(0);
+}
+
+.settings-section {
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--control-bg);
+}
+
+.settings-section:last-child {
+    border-bottom: none;
+}
+
+.settings-section h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    opacity: 0.8;
+}
+
+.view-mode-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.mode-button {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--control-bg);
+    border-radius: 4px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mode-button.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.viewer {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    margin: 0;
+    padding: 0;
+}
+
+/* View Modes */
+.viewer.scrolled-mode {
+    overflow-y: auto;
+}
+
+.viewer.paged-mode {
+    overflow: hidden;
+}
+
+.viewer.double-page-mode {
+    display: flex;
+    justify-content: center;
+}
+
+.current-chapter-title {
+    font-size: 0.8em;
+    opacity: 0.8;
+    margin-left: 1rem;
+    font-weight: normal;
+}
+
+#font-size-display {
+    min-width: 4em;
+    text-align: center;
+}
+
+/* Remove any existing transform styles that might interfere */
+#pdf-scaler {
+    display: none;
 } 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EPUB Reader</title>
+    <title>Reader</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="reader.css">
     <!-- Add PDF.js -->
@@ -17,27 +17,74 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <a href="index.html" class="back-button"><i class="fas fa-arrow-left"></i></a>
-            <h2 id="book-title">Loading...</h2>
+    <div class="reader-container">
+        <div class="top-bar">
+            <div class="left-controls">
+                <a href="index.html" class="back-button"><i class="fas fa-arrow-left"></i></a>
+                <h2 id="book-title">Loading...</h2>
+            </div>
+            
             <div class="reading-progress">
                 <span id="progress-text">0%</span>
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: 0%"></div>
                 </div>
             </div>
-        </div>
-        
-        <div class="controls">
-            <button id="toc-toggle" class="control-button"><i class="fas fa-list"></i></button>
-            <button id="prev-page" class="control-button"><i class="fas fa-chevron-left"></i></button>
-            <div class="font-controls">
-                <button id="decrease-font" class="control-button"><i class="fas fa-minus"></i></button>
-                <button id="increase-font" class="control-button"><i class="fas fa-plus"></i></button>
+
+            <div class="right-controls">
+                <button id="toc-toggle" class="control-button" title="Table of Contents">
+                    <i class="fas fa-list"></i>
+                </button>
+                <button id="settings-toggle" class="control-button" title="Settings">
+                    <i class="fas fa-cog"></i>
+                </button>
             </div>
-            <button id="theme-toggle" class="control-button"><i class="fas fa-moon"></i></button>
-            <button id="next-page" class="control-button"><i class="fas fa-chevron-right"></i></button>
+        </div>
+
+        <div class="settings-panel" id="settings-panel">
+            <div class="settings-section">
+                <h3>View Mode</h3>
+                <div class="view-mode-controls">
+                    <button class="mode-button active" data-mode="scrolled">
+                        <i class="fas fa-scroll"></i> Scrolled
+                    </button>
+                    <button class="mode-button" data-mode="single">
+                        <i class="fas fa-book-open"></i> Single Page
+                    </button>
+                    <button class="mode-button" data-mode="double">
+                        <i class="fas fa-books"></i> Double Page
+                    </button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>Font Size</h3>
+                <div class="font-controls">
+                    <button id="decrease-font" class="control-button">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <span id="font-size-display">100%</span>
+                    <button id="increase-font" class="control-button">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>Theme</h3>
+                <button id="theme-toggle" class="control-button">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="navigation-controls">
+            <button id="prev-page" class="nav-button left">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <button id="next-page" class="nav-button right">
+                <i class="fas fa-chevron-right"></i>
+            </button>
         </div>
 
         <div id="viewer" class="viewer"></div>

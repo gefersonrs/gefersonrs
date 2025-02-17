@@ -4,16 +4,20 @@ class EpubReader {
         this.book = null;
         this.rendition = null;
         this.currentFontSize = parseInt(localStorage.getItem('fontSize')) || 100;
+        this.currentViewMode = localStorage.getItem('viewMode') || 'scrolled';
         this.isDarkMode = localStorage.getItem('darkMode') === 'true';
         this.currentPdfPage = 1;
         this.totalPdfPages = 0;
         this.pdfDoc = null;
+        this.currentChapter = null;
         
         // DOM elements
         this.viewer = document.getElementById('viewer');
         this.bookTitle = document.getElementById('book-title');
         this.progressText = document.getElementById('progress-text');
         this.progressFill = document.querySelector('.progress-fill');
+        this.settingsPanel = document.getElementById('settings-panel');
+        this.fontSizeDisplay = document.getElementById('font-size-display');
         
         // Controls
         this.prevButton = document.getElementById('prev-page');
@@ -22,11 +26,48 @@ class EpubReader {
         this.increaseFontButton = document.getElementById('increase-font');
         this.themeToggle = document.getElementById('theme-toggle');
         this.tocToggle = document.getElementById('toc-toggle');
+        this.settingsToggle = document.getElementById('settings-toggle');
+        this.viewModeButtons = document.querySelectorAll('.mode-button');
 
-        // Apply initial theme
+        // Apply initial theme and view mode
         if (this.isDarkMode) {
             document.documentElement.setAttribute('data-theme', 'dark');
             this.themeToggle.querySelector('i').classList.replace('fa-moon', 'fa-sun');
+        }
+        
+        this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
+        this.applyViewMode(this.currentViewMode);
+    }
+
+    applyViewMode(mode) {
+        this.currentViewMode = mode;
+        localStorage.setItem('viewMode', mode);
+
+        // Update buttons
+        this.viewModeButtons.forEach(button => {
+            button.classList.toggle('active', button.dataset.mode === mode);
+        });
+
+        // Clear existing classes
+        this.viewer.classList.remove('scrolled-mode', 'paged-mode', 'double-page-mode');
+
+        if (this.rendition) {
+            switch (mode) {
+                case 'scrolled':
+                    this.viewer.classList.add('scrolled-mode');
+                    this.rendition.flow('scrolled-doc');
+                    break;
+                case 'single':
+                    this.viewer.classList.add('paged-mode');
+                    this.rendition.flow('paginated');
+                    break;
+                case 'double':
+                    this.viewer.classList.add('double-page-mode');
+                    this.rendition.flow('paginated');
+                    this.rendition.spread('auto');
+                    break;
+            }
+            this.rendition.resize();
         }
     }
 
@@ -72,22 +113,24 @@ class EpubReader {
 
     async loadPdf(bookData) {
         try {
-            // Ensure the correct version of PDF.js is loaded
             this.pdfDoc = await pdfjsLib.getDocument(bookData.data).promise;
             this.totalPdfPages = this.pdfDoc.numPages;
             
-            // Create PDF viewer container with scaling wrapper
+            // Create PDF viewer container
             this.viewer.innerHTML = `
                 <div id="pdf-container" class="${this.isDarkMode ? 'dark-mode' : ''}">
-                    <div id="pdf-scaler">
-                        <canvas id="pdf-canvas"></canvas>
-                    </div>
+                    <div id="pdf-pages-container"></div>
                 </div>
             `;
-            
-            // Load last viewed page or first page
-            this.currentPdfPage = bookData.currentLocation || 1;
-            await this.renderPdfPage(this.currentPdfPage);
+
+            // Hide view mode options for PDF
+            const viewModeSection = document.querySelector('.settings-section:has(.view-mode-controls)');
+            if (viewModeSection) {
+                viewModeSection.style.display = 'none';
+            }
+
+            // Load all pages
+            await this.renderAllPdfPages();
 
             // Update progress
             this.updatePdfProgress();
@@ -103,40 +146,61 @@ class EpubReader {
         }
     }
 
-    async renderPdfPage(pageNumber) {
-        try {
-            const page = await this.pdfDoc.getPage(pageNumber);
-            const canvas = document.getElementById('pdf-canvas');
-            const context = canvas.getContext('2d');
+    async renderAllPdfPages() {
+        const pagesContainer = document.getElementById('pdf-pages-container');
+        const containerWidth = this.viewer.clientWidth;
+        
+        // Clear existing pages
+        pagesContainer.innerHTML = '';
+        
+        for (let pageNum = 1; pageNum <= this.totalPdfPages; pageNum++) {
+            const pageContainer = document.createElement('div');
+            pageContainer.className = 'pdf-page-container';
+            const canvas = document.createElement('canvas');
+            canvas.id = `pdf-page-${pageNum}`;
+            pageContainer.appendChild(canvas);
+            pagesContainer.appendChild(pageContainer);
 
-            // Calculate scale to fit width
+            const page = await this.pdfDoc.getPage(pageNum);
             const viewport = page.getViewport({ scale: 1 });
-            const containerWidth = this.viewer.clientWidth;
-            const scale = containerWidth / viewport.width;
-            const scaledViewport = page.getViewport({ scale });
+            // Calculate scale based on container width and current font size
+            const baseScale = (containerWidth * 0.8) / viewport.width;
+            const finalScale = baseScale * (this.currentFontSize / 100);
+            const scaledViewport = page.getViewport({ scale: finalScale });
 
             canvas.width = scaledViewport.width;
             canvas.height = scaledViewport.height;
 
             await page.render({
-                canvasContext: context,
+                canvasContext: canvas.getContext('2d'),
                 viewport: scaledViewport
-            }).promise();
-
-            // Calculate progress ensuring it can reach 100%
-            const progress = pageNumber === this.totalPdfPages ? 
-                100 : 
-                Math.floor((pageNumber / this.totalPdfPages) * 100);
-
-            // Save progress
-            this.storage.updateProgress(
-                new URLSearchParams(window.location.search).get('id'),
-                progress,
-                pageNumber
-            ).catch(console.error);
-        } catch (error) {
-            console.error('Error rendering PDF page:', error);
+            }).promise;
         }
+
+        // Add intersection observer to track current page
+        this.observePdfPages();
+    }
+
+    observePdfPages() {
+        const options = {
+            root: this.viewer,
+            threshold: 0.5 // 50% visibility
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageNum = parseInt(entry.target.querySelector('canvas').id.split('-')[2]);
+                    this.currentPdfPage = pageNum;
+                    this.updatePdfProgress();
+                    this.updateTOCHighlight();
+                }
+            });
+        }, options);
+
+        document.querySelectorAll('.pdf-page-container').forEach(page => {
+            observer.observe(page);
+        });
     }
 
     updatePdfProgress() {
@@ -157,8 +221,8 @@ class EpubReader {
             this.rendition = this.book.renderTo(this.viewer, {
                 width: '100%',
                 height: '100%',
-                spread: 'none',
-                flow: 'scrolled-doc'
+                flow: this.currentViewMode === 'scrolled' ? 'scrolled-doc' : 'paginated',
+                spread: this.currentViewMode === 'double' ? 'auto' : 'none'
             });
 
             // Set up themes
@@ -189,18 +253,19 @@ class EpubReader {
                 await this.rendition.display();
             }
 
-            // Track progress
+            // Track progress and current chapter
             this.rendition.on('relocated', (location) => {
-                // Calculate progress ensuring it can reach 100%
+                // Calculate progress
                 let progress = Math.floor((location.start.percentage || 0) * 100);
-                
-                // Check if we're at the last location
                 if (location.start.percentage > 0.995) {
                     progress = 100;
                 }
                 
                 this.progressText.textContent = `${progress}%`;
                 this.progressFill.style.width = `${progress}%`;
+                
+                // Update current chapter
+                this.updateCurrentChapter(location);
                 
                 // Save progress
                 this.storage.updateProgress(
@@ -216,6 +281,36 @@ class EpubReader {
         }
     }
 
+    async updateCurrentChapter(location) {
+        const chapter = await this.book.spine.get(location.start.cfi);
+        if (chapter) {
+            const tocItem = this.findTocItemByHref(chapter.href);
+            if (tocItem) {
+                this.currentChapter = tocItem;
+                this.updateTOCHighlight();
+                // Update chapter display in the header
+                const chapterTitle = document.createElement('span');
+                chapterTitle.className = 'current-chapter-title';
+                chapterTitle.textContent = `${tocItem.label}`;
+                this.bookTitle.innerHTML = `${this.book.package.metadata.title} - ${chapterTitle.outerHTML}`;
+            }
+        }
+    }
+
+    findTocItemByHref(href) {
+        const searchToc = (items) => {
+            for (let item of items) {
+                if (item.href === href) return item;
+                if (item.subitems) {
+                    const found = searchToc(item.subitems);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+        return searchToc(this.book.navigation.toc);
+    }
+
     async displayPdfTOC(outline) {
         const tocContainer = document.getElementById('toc-container') || this.createTOCContainer();
         tocContainer.innerHTML = '<h3>Table of Contents</h3>';
@@ -226,17 +321,59 @@ class EpubReader {
             const link = document.createElement('a');
             link.textContent = item.title;
             link.href = '#';
+            link.dataset.pageNumber = ''; // Will be set when destination is resolved
+            
             link.onclick = async (e) => {
                 e.preventDefault();
-                if (item.dest) {
-                    const dest = await this.pdfDoc.getDestination(item.dest);
-                    const pageNumber = await this.pdfDoc.getPageIndex(dest[0]) + 1;
-                    this.currentPdfPage = pageNumber;
-                    await this.renderPdfPage(pageNumber);
-                    this.updatePdfProgress();
-                    tocContainer.classList.remove('active');
+                try {
+                    let pageNumber = null;
+                    
+                    if (item.dest) {
+                        // Try to get destination from name
+                        try {
+                            const dest = await this.pdfDoc.getDestination(item.dest);
+                            if (dest) {
+                                pageNumber = await this.pdfDoc.getPageIndex(dest[0]) + 1;
+                            }
+                        } catch (error) {
+                            console.log('Could not resolve named destination:', error);
+                        }
+                    }
+                    
+                    // If named destination failed, try explicit destination
+                    if (!pageNumber && item.dest) {
+                        try {
+                            if (Array.isArray(item.dest)) {
+                                pageNumber = await this.pdfDoc.getPageIndex(item.dest[0]) + 1;
+                            }
+                        } catch (error) {
+                            console.log('Could not resolve explicit destination:', error);
+                        }
+                    }
+                    
+                    // Try page reference as fallback
+                    if (!pageNumber && item.ref) {
+                        try {
+                            pageNumber = await this.pdfDoc.getPageIndex(item.ref) + 1;
+                        } catch (error) {
+                            console.log('Could not resolve page reference:', error);
+                        }
+                    }
+                    
+                    if (pageNumber) {
+                        this.currentPdfPage = pageNumber;
+                        await this.renderPdfPage(pageNumber);
+                        this.updatePdfProgress();
+                        this.updateTOCHighlight();
+                        tocContainer.classList.remove('active');
+                    } else {
+                        console.warn('Could not resolve destination for:', item.title);
+                    }
+                } catch (error) {
+                    console.error('Error navigating to destination:', error);
                 }
             };
+            
             listItem.appendChild(link);
 
             if (item.items && item.items.length > 0) {
@@ -247,6 +384,17 @@ class EpubReader {
                 listItem.appendChild(subList);
             }
 
+            // Store the page number in the link's dataset when it's resolved
+            if (item.dest) {
+                this.resolveDestination(item.dest).then(pageNumber => {
+                    if (pageNumber) {
+                        link.dataset.pageNumber = pageNumber;
+                    }
+                }).catch(error => {
+                    console.log('Error resolving destination:', error);
+                });
+            }
+
             return listItem;
         };
 
@@ -255,6 +403,59 @@ class EpubReader {
         });
         
         tocContainer.appendChild(list);
+        this.updateTOCHighlight();
+    }
+
+    // Add this new method to resolve destinations
+    async resolveDestination(dest) {
+        try {
+            if (typeof dest === 'string') {
+                const destination = await this.pdfDoc.getDestination(dest);
+                if (destination) {
+                    return await this.pdfDoc.getPageIndex(destination[0]) + 1;
+                }
+            } else if (Array.isArray(dest)) {
+                return await this.pdfDoc.getPageIndex(dest[0]) + 1;
+            }
+        } catch (error) {
+            console.log('Error resolving destination:', error);
+        }
+        return null;
+    }
+
+    // Add this new method to highlight current chapter
+    updateTOCHighlight() {
+        const tocContainer = document.getElementById('toc-container');
+        if (!tocContainer) return;
+
+        // Remove previous highlight
+        const allLinks = tocContainer.getElementsByTagName('a');
+        for (let link of allLinks) {
+            link.classList.remove('current-chapter');
+        }
+
+        // Find and highlight current chapter
+        let currentChapter = null;
+        let smallestDiff = Infinity;
+
+        for (let link of allLinks) {
+            const pageNumber = parseInt(link.dataset.pageNumber);
+            if (!isNaN(pageNumber)) {
+                const diff = Math.abs(pageNumber - this.currentPdfPage);
+                if (diff < smallestDiff) {
+                    smallestDiff = diff;
+                    currentChapter = link;
+                }
+            }
+        }
+
+        if (currentChapter) {
+            currentChapter.classList.add('current-chapter');
+            // Scroll the chapter into view if TOC is visible
+            if (tocContainer.classList.contains('active')) {
+                currentChapter.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
     }
 
     displayTOC(toc) {
@@ -320,34 +521,30 @@ class EpubReader {
             }
         });
 
-        this.decreaseFontButton.addEventListener('click', () => {
-            if (this.rendition) {
-                if (this.currentFontSize > 50) {
-                    this.currentFontSize -= 10;
+        this.decreaseFontButton.addEventListener('click', async () => {
+            if (this.currentFontSize > 50) {
+                this.currentFontSize -= 10;
+                this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
+                localStorage.setItem('fontSize', this.currentFontSize);
+                
+                if (this.rendition) {
                     this.rendition.themes.fontSize(`${this.currentFontSize}%`);
-                    localStorage.setItem('fontSize', this.currentFontSize);
-                }
-            } else if (this.pdfDoc) {
-                if (this.currentFontSize > 50) {
-                    this.currentFontSize -= 10;
-                    this.updatePdfScale();
-                    localStorage.setItem('fontSize', this.currentFontSize);
+                } else if (this.pdfDoc) {
+                    await this.renderAllPdfPages();
                 }
             }
         });
 
-        this.increaseFontButton.addEventListener('click', () => {
-            if (this.rendition) {
-                if (this.currentFontSize < 200) {
-                    this.currentFontSize += 10;
+        this.increaseFontButton.addEventListener('click', async () => {
+            if (this.currentFontSize < 200) {
+                this.currentFontSize += 10;
+                this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
+                localStorage.setItem('fontSize', this.currentFontSize);
+                
+                if (this.rendition) {
                     this.rendition.themes.fontSize(`${this.currentFontSize}%`);
-                    localStorage.setItem('fontSize', this.currentFontSize);
-                }
-            } else if (this.pdfDoc) {
-                if (this.currentFontSize < 200) {
-                    this.currentFontSize += 10;
-                    this.updatePdfScale();
-                    localStorage.setItem('fontSize', this.currentFontSize);
+                } else if (this.pdfDoc) {
+                    await this.renderAllPdfPages();
                 }
             }
         });
@@ -393,6 +590,26 @@ class EpubReader {
             } else if (this.rendition) {
                 if (event.key === 'ArrowLeft') this.rendition.prev();
                 if (event.key === 'ArrowRight') this.rendition.next();
+            }
+        });
+
+        // Add settings panel toggle
+        this.settingsToggle.addEventListener('click', () => {
+            this.settingsPanel.classList.toggle('active');
+        });
+
+        // Add view mode controls
+        this.viewModeButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                this.applyViewMode(button.dataset.mode);
+            });
+        });
+
+        // Close settings panel when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!this.settingsPanel.contains(e.target) && 
+                !this.settingsToggle.contains(e.target)) {
+                this.settingsPanel.classList.remove('active');
             }
         });
     }
