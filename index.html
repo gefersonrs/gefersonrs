@@ -13,54 +13,78 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <header class="header">
-            <h1>My Library</h1>
-            <div class="header-controls">
-                <input type="search" id="search-input" placeholder="Search books..." />
-                <button id="theme-toggle" class="control-button">
-                    <i class="fas fa-moon"></i>
+    <div class="app-layout">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>My Library</h1>
+            </div>
+            
+            <div class="reading-stats">
+                <div class="stats-card">
+                    <i class="fas fa-book"></i>
+                    <div class="stats-info">
+                        <span id="total-books">0</span>
+                        <span>Total Books</span>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <i class="fas fa-bookmark"></i>
+                    <div class="stats-info">
+                        <span id="reading-books">0</span>
+                        <span>Currently Reading</span>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <i class="fas fa-check-circle"></i>
+                    <div class="stats-info">
+                        <span id="completed-books">0</span>
+                        <span>Completed</span>
+                    </div>
+                </div>
+                <div class="stats-card">
+                    <i class="fas fa-clock"></i>
+                    <div class="stats-info">
+                        <span id="reading-time">0h</span>
+                        <span>Reading Time</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <div class="top-bar">
+                <div class="search-bar">
+                    <input type="search" id="search-input" placeholder="Search books..." />
+                </div>
+                <div class="top-controls">
+                    <button id="theme-toggle" class="control-button">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <label for="file-input" class="upload-button">
+                        <i class="fas fa-plus"></i> Add Book
+                    </label>
+                    <input type="file" id="file-input" accept=".epub,application/epub+zip,.pdf,application/pdf" hidden />
+                </div>
+            </div>
+
+            <div class="section-header currently-reading">
+                <h2>Currently Reading</h2>
+            </div>
+            <div class="currently-reading-wrapper">
+                <button class="scroll-button left hidden">
+                    <i class="fas fa-chevron-left"></i>
                 </button>
-                <label for="file-input" class="upload-button">
-                    <i class="fas fa-plus"></i> Add Book
-                </label>
-                <input type="file" id="file-input" accept=".epub,application/epub+zip,.pdf,application/pdf" hidden />
+                <div class="books-grid" id="currently-reading-container"></div>
+                <button class="scroll-button right">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
             </div>
-        </header>
 
-        <div class="reading-stats">
-            <div class="stats-card">
-                <i class="fas fa-book"></i>
-                <div class="stats-info">
-                    <span id="total-books">0</span>
-                    <span>Total Books</span>
-                </div>
+            <div class="section-header">
+                <h2>All Books</h2>
             </div>
-            <div class="stats-card">
-                <i class="fas fa-bookmark"></i>
-                <div class="stats-info">
-                    <span id="reading-books">0</span>
-                    <span>Currently Reading</span>
-                </div>
-            </div>
-            <div class="stats-card">
-                <i class="fas fa-check-circle"></i>
-                <div class="stats-info">
-                    <span id="completed-books">0</span>
-                    <span>Completed</span>
-                </div>
-            </div>
-        </div>
-
-        <h2>Currently Reading</h2>
-        <div class="books-grid" id="currently-reading-container">
-            <!-- Currently reading books will be added here dynamically -->
-        </div>
-
-        <h2>All Books</h2>
-        <div class="books-grid" id="all-books-container">
-            <!-- All books will be added here dynamically -->
-        </div>
+            <div class="books-grid" id="all-books-container"></div>
+        </main>
     </div>
     <script src="storage.js"></script>
     <script src="library.js"></script>

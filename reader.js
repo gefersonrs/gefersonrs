@@ -111,6 +111,97 @@ class EpubReader {
         }
     }
 
+    async loadEpub(bookData) {
+        try {
+            // Show loading overlay
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'loading-overlay';
+            loadingOverlay.innerHTML = `
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Loading EPUB...</div>
+            `;
+            document.body.appendChild(loadingOverlay);
+
+            this.bookTitle.textContent = bookData.title;
+            
+            // Create book with optimized settings
+            this.book = ePub({
+                encoding: 'binary',
+                replacements: 'blobUrl',
+                openAs: 'epub'
+            });
+            await this.book.open(bookData.data);
+
+            // Create rendition with optimized settings
+            this.rendition = this.book.renderTo(this.viewer, {
+                width: '100%',
+                height: '100%',
+                flow: this.currentViewMode === 'scrolled' ? 'scrolled-doc' : 'paginated',
+                spread: this.currentViewMode === 'double' ? 'auto' : 'none',
+                minSpreadWidth: 800,
+                manager: 'continuous'
+            });
+
+            // Set up themes
+            this.rendition.themes.register('light', {
+                body: { color: '#000000', background: '#ffffff' }
+            });
+            this.rendition.themes.register('dark', {
+                body: { color: '#ffffff', background: '#1a1a1a' }
+            });
+
+            // Apply initial theme and font size
+            this.rendition.themes.select(this.isDarkMode ? 'dark' : 'light');
+            this.rendition.themes.fontSize(`${this.currentFontSize}%`);
+
+            // Load TOC in parallel with initial display
+            const tocPromise = this.book.loaded.navigation.then(navigation => {
+                if (navigation.toc) {
+                    this.displayTOC(navigation.toc);
+                }
+            });
+
+            // Generate locations in the background after initial display
+            const displayPromise = bookData.currentLocation 
+                ? this.rendition.display(bookData.currentLocation)
+                : this.rendition.display();
+
+            // Wait for initial display before removing loading overlay
+            await displayPromise;
+            loadingOverlay.remove();
+
+            // Continue with background tasks
+            Promise.all([
+                tocPromise,
+                this.book.locations.generate(1000) // Reduced number of locations for faster loading
+            ]).catch(console.error);
+
+            // Track progress and current chapter
+            this.rendition.on('relocated', (location) => {
+                // Calculate progress
+                let progress = Math.floor((location.start.percentage || 0) * 100);
+                if (location.start.percentage > 0.995) progress = 100;
+                
+                this.progressText.textContent = `${progress}%`;
+                this.progressFill.style.width = `${progress}%`;
+                
+                // Update current chapter
+                this.updateCurrentChapter(location);
+                
+                // Save progress
+                this.storage.updateProgress(
+                    bookData.id,
+                    progress,
+                    location.start.cfi
+                ).catch(console.error);
+            });
+
+        } catch (error) {
+            console.error('Error loading book:', error);
+            throw error;
+        }
+    }
+
     async loadPdf(bookData) {
         try {
             // Show loading overlay
@@ -122,7 +213,16 @@ class EpubReader {
             `;
             document.body.appendChild(loadingOverlay);
 
-            this.pdfDoc = await pdfjsLib.getDocument(bookData.data).promise;
+            // Load PDF document with optimized settings
+            const loadingTask = pdfjsLib.getDocument({
+                data: bookData.data,
+                cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+                cMapPacked: true,
+                enableXfa: false,
+                disableFontFace: false
+            });
+
+            this.pdfDoc = await loadingTask.promise;
             this.totalPdfPages = this.pdfDoc.numPages;
             
             // Create PDF viewer container
@@ -132,12 +232,10 @@ class EpubReader {
                 </div>
             `;
 
-            // Create TOC container if it doesn't exist
+            // Initialize containers and settings
             if (!document.getElementById('toc-container')) {
                 this.createTOCContainer();
             }
-
-            // Ensure the settings panel exists
             this.settingsPanel = document.getElementById('settings-panel');
             
             // Hide view mode options for PDF
@@ -147,31 +245,39 @@ class EpubReader {
             }
 
             try {
-                // Render all pages at once
-                for (let i = 1; i <= this.totalPdfPages; i++) {
-                    await this.renderPdfPage(i);
+                // Load first few pages initially
+                const initialPagesToLoad = Math.min(3, this.totalPdfPages);
+                const loadingPromises = [];
+
+                for (let i = 1; i <= initialPagesToLoad; i++) {
+                    loadingPromises.push(this.renderPdfPage(i));
                 }
 
-                // Add intersection observer to track current page
-                this.observePdfPages();
+                // Wait for initial pages to load
+                await Promise.all(loadingPromises);
 
-                // Remove loading overlay
+                // Remove loading overlay after initial pages are loaded
                 loadingOverlay.remove();
 
-                // Update progress
-                this.updatePdfProgress();
+                // Load remaining pages in the background
+                if (this.totalPdfPages > initialPagesToLoad) {
+                    this.loadRemainingPages(initialPagesToLoad + 1);
+                }
 
-                // Extract and display TOC
+                // Load TOC in parallel
                 const outline = await this.pdfDoc.getOutline();
                 if (outline) {
                     await this.displayPdfTOC(outline);
                 }
 
-                // Hide navigation controls for PDF
+                // Hide navigation controls
                 const navControls = document.querySelector('.navigation-controls');
                 if (navControls) {
                     navControls.style.display = 'none';
                 }
+
+                // Set up page tracking
+                this.observePdfPages();
 
             } catch (error) {
                 console.error('Error rendering PDF:', error);
@@ -183,6 +289,30 @@ class EpubReader {
             console.error('Error loading PDF:', error);
             throw error;
         }
+    }
+
+    // Add method to load remaining PDF pages
+    async loadRemainingPages(startPage) {
+        const loadNextBatch = async (currentPage) => {
+            if (currentPage > this.totalPdfPages) return;
+
+            const batchSize = 3;
+            const endPage = Math.min(currentPage + batchSize - 1, this.totalPdfPages);
+            const promises = [];
+
+            for (let i = currentPage; i <= endPage; i++) {
+                promises.push(this.renderPdfPage(i));
+            }
+
+            await Promise.all(promises);
+
+            // Load next batch with a small delay to prevent UI blocking
+            if (endPage < this.totalPdfPages) {
+                setTimeout(() => loadNextBatch(endPage + 1), 100);
+            }
+        };
+
+        loadNextBatch(startPage);
     }
 
     // Add this method to render individual PDF pages
@@ -218,78 +348,6 @@ class EpubReader {
             canvasContext: canvas.getContext('2d'),
             viewport: scaledViewport
         }).promise;
-    }
-
-    async loadEpub(bookData) {
-        try {
-            this.bookTitle.textContent = bookData.title;
-            
-            // Create book
-            this.book = ePub();
-            await this.book.open(bookData.data);
-
-            // Create rendition
-            this.rendition = this.book.renderTo(this.viewer, {
-                width: '100%',
-                height: '100%',
-                flow: this.currentViewMode === 'scrolled' ? 'scrolled-doc' : 'paginated',
-                spread: this.currentViewMode === 'double' ? 'auto' : 'none'
-            });
-
-            // Set up themes
-            this.rendition.themes.register('light', {
-                body: { color: '#000000', background: '#ffffff' }
-            });
-            this.rendition.themes.register('dark', {
-                body: { color: '#ffffff', background: '#1a1a1a' }
-            });
-
-            // Apply initial theme and font size
-            this.rendition.themes.select(this.isDarkMode ? 'dark' : 'light');
-            this.rendition.themes.fontSize(`${this.currentFontSize}%`);
-
-            // Load TOC
-            const navigation = await this.book.loaded.navigation;
-            if (navigation.toc) {
-                this.displayTOC(navigation.toc);
-            }
-
-            // Set up progress tracking
-            await this.book.locations.generate();
-            
-            // Display from last location or start
-            if (bookData.currentLocation) {
-                await this.rendition.display(bookData.currentLocation);
-            } else {
-                await this.rendition.display();
-            }
-
-            // Track progress and current chapter
-            this.rendition.on('relocated', (location) => {
-                // Calculate progress
-                let progress = Math.floor((location.start.percentage || 0) * 100);
-                if (location.start.percentage > 0.995) {
-                    progress = 100;
-                }
-                
-                this.progressText.textContent = `${progress}%`;
-                this.progressFill.style.width = `${progress}%`;
-                
-                // Update current chapter
-                this.updateCurrentChapter(location);
-                
-                // Save progress
-                this.storage.updateProgress(
-                    bookData.id,
-                    progress,
-                    location.start.cfi
-                ).catch(console.error);
-            });
-
-        } catch (error) {
-            console.error('Error loading book:', error);
-            throw error;
-        }
     }
 
     async updateCurrentChapter(location) {
