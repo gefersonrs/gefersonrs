@@ -113,6 +113,15 @@ class EpubReader {
 
     async loadPdf(bookData) {
         try {
+            // Show loading overlay
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'loading-overlay';
+            loadingOverlay.innerHTML = `
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Loading PDF...</div>
+            `;
+            document.body.appendChild(loadingOverlay);
+
             this.pdfDoc = await pdfjsLib.getDocument(bookData.data).promise;
             this.totalPdfPages = this.pdfDoc.numPages;
             
@@ -123,90 +132,92 @@ class EpubReader {
                 </div>
             `;
 
+            // Create TOC container if it doesn't exist
+            if (!document.getElementById('toc-container')) {
+                this.createTOCContainer();
+            }
+
+            // Ensure the settings panel exists
+            this.settingsPanel = document.getElementById('settings-panel');
+            
             // Hide view mode options for PDF
             const viewModeSection = document.querySelector('.settings-section:has(.view-mode-controls)');
             if (viewModeSection) {
                 viewModeSection.style.display = 'none';
             }
 
-            // Load all pages
-            await this.renderAllPdfPages();
+            try {
+                // Render all pages at once
+                for (let i = 1; i <= this.totalPdfPages; i++) {
+                    await this.renderPdfPage(i);
+                }
 
-            // Update progress
-            this.updatePdfProgress();
+                // Add intersection observer to track current page
+                this.observePdfPages();
 
-            // Extract and display TOC
-            const outline = await this.pdfDoc.getOutline();
-            if (outline) {
-                await this.displayPdfTOC(outline);
+                // Remove loading overlay
+                loadingOverlay.remove();
+
+                // Update progress
+                this.updatePdfProgress();
+
+                // Extract and display TOC
+                const outline = await this.pdfDoc.getOutline();
+                if (outline) {
+                    await this.displayPdfTOC(outline);
+                }
+
+                // Hide navigation controls for PDF
+                const navControls = document.querySelector('.navigation-controls');
+                if (navControls) {
+                    navControls.style.display = 'none';
+                }
+
+            } catch (error) {
+                console.error('Error rendering PDF:', error);
+                loadingOverlay.remove();
+                throw error;
             }
+
         } catch (error) {
             console.error('Error loading PDF:', error);
             throw error;
         }
     }
 
-    async renderAllPdfPages() {
+    // Add this method to render individual PDF pages
+    async renderPdfPage(pageNum) {
         const pagesContainer = document.getElementById('pdf-pages-container');
         const containerWidth = this.viewer.clientWidth;
         
-        // Clear existing pages
-        pagesContainer.innerHTML = '';
-        
-        for (let pageNum = 1; pageNum <= this.totalPdfPages; pageNum++) {
-            const pageContainer = document.createElement('div');
+        // Create page container if it doesn't exist
+        let pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
+        if (!pageContainer) {
+            pageContainer = document.createElement('div');
+            pageContainer.id = `pdf-page-container-${pageNum}`;
             pageContainer.className = 'pdf-page-container';
             const canvas = document.createElement('canvas');
             canvas.id = `pdf-page-${pageNum}`;
             pageContainer.appendChild(canvas);
             pagesContainer.appendChild(pageContainer);
-
-            const page = await this.pdfDoc.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 1 });
-            // Calculate scale based on container width and current font size
-            const baseScale = (containerWidth * 0.8) / viewport.width;
-            const finalScale = baseScale * (this.currentFontSize / 100);
-            const scaledViewport = page.getViewport({ scale: finalScale });
-
-            canvas.width = scaledViewport.width;
-            canvas.height = scaledViewport.height;
-
-            await page.render({
-                canvasContext: canvas.getContext('2d'),
-                viewport: scaledViewport
-            }).promise;
         }
 
-        // Add intersection observer to track current page
-        this.observePdfPages();
-    }
+        const canvas = pageContainer.querySelector('canvas');
+        const page = await this.pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1 });
+        
+        // Calculate scale based on container width and current font size
+        const baseScale = (containerWidth * 0.8) / viewport.width;
+        const finalScale = baseScale * (this.currentFontSize / 100);
+        const scaledViewport = page.getViewport({ scale: finalScale });
 
-    observePdfPages() {
-        const options = {
-            root: this.viewer,
-            threshold: 0.5 // 50% visibility
-        };
+        canvas.width = scaledViewport.width;
+        canvas.height = scaledViewport.height;
 
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const pageNum = parseInt(entry.target.querySelector('canvas').id.split('-')[2]);
-                    this.currentPdfPage = pageNum;
-                    this.updatePdfProgress();
-                    this.updateTOCHighlight();
-                }
-            });
-        }, options);
-
-        document.querySelectorAll('.pdf-page-container').forEach(page => {
-            observer.observe(page);
-        });
-    }
-
-    updatePdfProgress() {
-        const progress = Math.floor((this.currentPdfPage / this.totalPdfPages) * 100);
-        this.progressText.textContent = `${progress}%`;
-        this.progressFill.style.width = `${progress}%`;
+        await page.render({
+            canvasContext: canvas.getContext('2d'),
+            viewport: scaledViewport
+        }).promise;
     }
 
     async loadEpub(bookData) {
@@ -497,10 +508,12 @@ class EpubReader {
         const container = document.createElement('div');
         container.id = 'toc-container';
         document.body.appendChild(container);
+        this.tocContainer = container;
         return container;
     }
 
     bindEvents() {
+        // Navigation buttons
         this.prevButton.addEventListener('click', async () => {
             if (this.pdfDoc && this.currentPdfPage > 1) {
                 this.currentPdfPage--;
@@ -521,6 +534,7 @@ class EpubReader {
             }
         });
 
+        // Font size controls
         this.decreaseFontButton.addEventListener('click', async () => {
             if (this.currentFontSize > 50) {
                 this.currentFontSize -= 10;
@@ -549,6 +563,7 @@ class EpubReader {
             }
         });
 
+        // Theme toggle
         this.themeToggle.addEventListener('click', () => {
             this.isDarkMode = !this.isDarkMode;
             document.documentElement.setAttribute('data-theme', this.isDarkMode ? 'dark' : 'light');
@@ -558,23 +573,50 @@ class EpubReader {
                 this.isDarkMode ? 'fa-sun' : 'fa-moon'
             );
             
-            // Handle theme for both EPUB and PDF
             if (this.rendition) {
                 this.rendition.themes.select(this.isDarkMode ? 'dark' : 'light');
             }
             const pdfContainer = document.getElementById('pdf-container');
             if (pdfContainer) {
                 pdfContainer.classList.toggle('dark-mode', this.isDarkMode);
+                this.renderAllPdfPages();
             }
         });
 
-        this.tocToggle.addEventListener('click', () => {
+        // TOC toggle
+        this.tocToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            console.log('TOC toggle clicked'); // Debug log
             const tocContainer = document.getElementById('toc-container');
             if (tocContainer) {
                 tocContainer.classList.toggle('active');
+                // Close settings panel when opening TOC
+                this.settingsPanel.classList.remove('active');
             }
         });
 
+        // Settings toggle
+        this.settingsToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            console.log('Settings toggle clicked'); // Debug log
+            this.settingsPanel.classList.toggle('active');
+            
+            // Hide view mode options if viewing a PDF
+            if (this.pdfDoc) {
+                const viewModeSection = document.querySelector('.settings-section:has(.view-mode-controls)');
+                if (viewModeSection) {
+                    viewModeSection.style.display = 'none';
+                }
+            }
+            
+            // Close TOC when opening settings
+            const tocContainer = document.getElementById('toc-container');
+            if (tocContainer) {
+                tocContainer.classList.remove('active');
+            }
+        });
+
+        // Keyboard navigation
         document.addEventListener('keyup', async (event) => {
             if (this.pdfDoc) {
                 if (event.key === 'ArrowLeft' && this.currentPdfPage > 1) {
@@ -593,25 +635,40 @@ class EpubReader {
             }
         });
 
-        // Add settings panel toggle
-        this.settingsToggle.addEventListener('click', () => {
-            this.settingsPanel.classList.toggle('active');
-        });
-
-        // Add view mode controls
+        // View mode controls
         this.viewModeButtons.forEach(button => {
             button.addEventListener('click', () => {
                 this.applyViewMode(button.dataset.mode);
             });
         });
 
-        // Close settings panel when clicking outside
+        // Close panels when clicking outside
         document.addEventListener('click', (e) => {
+            // Close settings panel
             if (!this.settingsPanel.contains(e.target) && 
                 !this.settingsToggle.contains(e.target)) {
                 this.settingsPanel.classList.remove('active');
             }
+
+            // Close TOC panel
+            const tocContainer = document.getElementById('toc-container');
+            if (tocContainer && 
+                !tocContainer.contains(e.target) && 
+                !this.tocToggle.contains(e.target)) {
+                tocContainer.classList.remove('active');
+            }
         });
+
+        // Prevent clicks inside panels from closing them
+        this.settingsPanel.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        if (this.tocContainer) {
+            this.tocContainer.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
     }
 
     updatePdfScale() {
@@ -621,6 +678,36 @@ class EpubReader {
             scaler.style.transform = `scale(${scale})`;
             scaler.style.transformOrigin = 'top left';
         }
+    }
+
+    // Add this method back to handle PDF progress updates
+    updatePdfProgress() {
+        const progress = Math.floor((this.currentPdfPage / this.totalPdfPages) * 100);
+        this.progressText.textContent = `${progress}%`;
+        this.progressFill.style.width = `${progress}%`;
+    }
+
+    // Also add back the intersection observer to track current page
+    observePdfPages() {
+        const options = {
+            root: this.viewer,
+            threshold: 0.5 // 50% visibility
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageNum = parseInt(entry.target.querySelector('canvas').id.split('-')[2]);
+                    this.currentPdfPage = pageNum;
+                    this.updatePdfProgress();
+                    this.updateTOCHighlight();
+                }
+            });
+        }, options);
+
+        document.querySelectorAll('.pdf-page-container').forEach(page => {
+            observer.observe(page);
+        });
     }
 }
 

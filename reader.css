@@ -95,11 +95,13 @@
 }
 
 .viewer {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    margin: 0;
+    padding: 0;
+    border: none;
     background: var(--bg-color);
-    border-radius: 12px;
-    box-shadow: var(--card-shadow);
-    padding: 2rem;
-    margin-top: 1rem;
 }
 
 #toc-container {
@@ -169,7 +171,7 @@
 .pdf-page-container canvas {
     max-width: 100%;
     height: auto;
-    background-color: white;
+    background-color: var(--bg-color);
 }
 
 /* Dark mode styles */
@@ -187,7 +189,8 @@
 }
 
 /* Hide navigation buttons for PDF */
-.pdf-mode .navigation-controls {
+.pdf-mode .navigation-controls,
+.pdf-mode .view-mode-controls {
     display: none;
 }
 
@@ -279,10 +282,12 @@
     transform: translateY(-120%);
     transition: transform 0.3s ease;
     border: 1px solid var(--control-bg);
+    display: none;
 }
 
 .settings-panel.active {
     transform: translateY(0);
+    display: block;
 }
 
 .settings-section {
@@ -323,14 +328,6 @@
     border-color: var(--primary-color);
 }
 
-.viewer {
-    flex: 1;
-    overflow: auto;
-    position: relative;
-    margin: 0;
-    padding: 0;
-}
-
 /* View Modes */
 .viewer.scrolled-mode {
     overflow-y: auto;
@@ -360,4 +357,40 @@
 /* Remove any existing transform styles that might interfere */
 #pdf-scaler {
     display: none;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid var(--control-bg);
+    border-radius: 50%;
+    border-top-color: var(--primary-color);
+    animation: spin 1s linear infinite;
+    margin-bottom: 1rem;
+}
+
+.loading-text {
+    color: var(--text-color);
+    font-size: 1.1rem;
+    margin-top: 1rem;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 } 
