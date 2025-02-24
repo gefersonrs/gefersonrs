@@ -33,26 +33,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await storage.init();
     await loadBooks();
     updateStats();
+    createThemeSelector();
 
-    // Add theme toggle functionality
-    const themeToggle = document.getElementById('theme-toggle');
-    let isDarkMode = localStorage.getItem('darkMode') === 'true';
-
-    // Apply initial theme
-    if (isDarkMode) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        themeToggle.querySelector('i').classList.replace('fa-moon', 'fa-sun');
-    }
-
-    themeToggle.addEventListener('click', () => {
-        isDarkMode = !isDarkMode;
-        document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
-        themeToggle.querySelector('i').classList.replace(
-            isDarkMode ? 'fa-moon' : 'fa-sun',
-            isDarkMode ? 'fa-sun' : 'fa-moon'
-        );
-        localStorage.setItem('darkMode', isDarkMode);
-    });
+    // Remove the theme toggle initialization and replace with this
+    const currentTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', currentTheme);
 
     async function loadBooks(searchTerm = '') {
         const books = await storage.getAllBooks();
@@ -125,9 +110,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>
             `;
         } else {
-            // Simple card for all books section
+            // Updated simple card for all books section
             card.innerHTML = `
-                <a href="reader.html?id=${book.id}" class="book-card-link">
+                <div class="book-card-link">
                     <div class="book-cover">
                         ${book.coverUrl 
                             ? `<img src="${book.coverUrl}" alt="Cover of ${book.title}" />`
@@ -143,8 +128,52 @@ document.addEventListener('DOMContentLoaded', async () => {
                         <h3 class="book-title">${book.title}</h3>
                         <p class="book-author">${book.author || 'Unknown Author'}</p>
                     </div>
-                </a>
+                </div>
+                <div class="book-options">
+                    <button class="options-toggle">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                    <div class="options-menu">
+                        <a href="reader.html?id=${book.id}" class="option-item">
+                            <i class="fas fa-book-reader"></i> Read
+                        </a>
+                        <button class="option-item delete">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
             `;
+
+            // Add event listeners for the options menu
+            const optionsToggle = card.querySelector('.options-toggle');
+            const optionsMenu = card.querySelector('.options-menu');
+            const deleteButton = card.querySelector('.option-item.delete');
+            const cardLink = card.querySelector('.book-card-link');
+
+            // Make the whole card clickable except for the options
+            cardLink.addEventListener('click', () => {
+                window.location.href = `reader.html?id=${book.id}`;
+            });
+
+            optionsToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                optionsMenu.classList.toggle('active');
+            });
+
+            deleteButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (confirm('Are you sure you want to delete this book?')) {
+                    await storage.delete(book.id);
+                    await loadBooks();
+                    showToast('Book deleted successfully', 'success');
+                }
+            });
+
+            // Close menu when clicking outside
+            document.addEventListener('click', () => {
+                optionsMenu.classList.remove('active');
+            });
         }
 
         return card;
@@ -277,5 +306,66 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Update buttons when window resizes
         window.addEventListener('resize', updateScrollButtons);
+    }
+
+    // Add after the DOMContentLoaded event
+    function createThemeSelector() {
+        const themeContainer = document.createElement('div');
+        themeContainer.className = 'theme-selector';
+        
+        const themes = [
+            { id: 'light', icon: 'sun', label: 'Light' },
+            { id: 'sepia', icon: 'book', label: 'Sepia' },
+            { id: 'cream', icon: 'moon', label: 'Cream' },
+            { id: 'night', icon: 'stars', label: 'Night' },
+            { id: 'dark', icon: 'circle', label: 'Dark' },
+            { id: 'sage', icon: 'leaf', label: 'Sage' }
+        ];
+
+        themeContainer.innerHTML = `
+            <button class="theme-toggle" id="theme-toggle">
+                <i class="fas fa-palette"></i>
+            </button>
+            <div class="theme-menu">
+                ${themes.map(theme => `
+                    <button class="theme-option" data-theme="${theme.id}">
+                        <i class="fas fa-${theme.icon}"></i>
+                        ${theme.label}
+                    </button>
+                `).join('')}
+            </div>
+        `;
+
+        document.querySelector('.top-controls').appendChild(themeContainer);
+
+        // Get current theme or set default
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+
+        // Theme toggle functionality
+        const themeToggle = themeContainer.querySelector('.theme-toggle');
+        const themeMenu = themeContainer.querySelector('.theme-menu');
+
+        themeToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            themeMenu.classList.toggle('active');
+        });
+
+        // Theme selection
+        const themeOptions = themeContainer.querySelectorAll('.theme-option');
+        themeOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                const theme = option.dataset.theme;
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('theme', theme);
+                themeMenu.classList.remove('active');
+                showToast(`Theme changed to ${option.textContent.trim()}`, 'success');
+            });
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', () => {
+            themeMenu.classList.remove('active');
+        });
     }
 }); 

@@ -38,6 +38,7 @@
 #progress-text {
     min-width: 4em;
     font-weight: 500;
+    color: var(--text-color);
 }
 
 .progress-bar {
@@ -67,6 +68,7 @@
     border-radius: 12px;
     box-shadow: var(--card-shadow);
     margin-bottom: 2rem;
+    border: 1px solid var(--control-bg);
 }
 
 .control-button {
@@ -107,7 +109,7 @@
 #toc-container {
     background: var(--bg-color);
     box-shadow: var(--card-shadow);
-    border-right: none;
+    border-right: 1px solid var(--control-bg);
 }
 
 #toc-container h3 {
@@ -129,7 +131,7 @@
 }
 
 #toc-container a:hover {
-    background-color: var(--control-hover);
+    background: var(--control-bg);
 }
 
 #toc-container a.current-chapter {
@@ -249,7 +251,7 @@
 
 .nav-button {
     background: var(--bg-color);
-    border: none;
+    border: 1px solid var(--control-bg);
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -262,11 +264,14 @@
     pointer-events: auto;
     margin: 0 1rem;
     box-shadow: var(--card-shadow);
+    color: var(--text-color);
 }
 
 .nav-button:hover {
     opacity: 1;
     transform: scale(1.1);
+    background: var(--primary-color);
+    color: white;
 }
 
 .settings-panel {
@@ -283,6 +288,7 @@
     transition: transform 0.3s ease;
     border: 1px solid var(--control-bg);
     display: none;
+    color: var(--text-color);
 }
 
 .settings-panel.active {
@@ -352,6 +358,7 @@
 #font-size-display {
     min-width: 4em;
     text-align: center;
+    color: var(--text-color);
 }
 
 /* Remove any existing transform styles that might interfere */
@@ -393,4 +400,35 @@
     to {
         transform: rotate(360deg);
     }
+}
+
+/* Theme options in settings panel */
+.theme-options {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+}
+
+.theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.8rem;
+    border: 1px solid var(--control-bg);
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+}
+
+.theme-option:hover {
+    background: var(--control-bg);
+}
+
+.theme-option.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
 } 

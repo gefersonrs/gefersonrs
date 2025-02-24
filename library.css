@@ -1,10 +1,73 @@
+/* Theme variables */
 :root {
+    /* Default light theme */
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --control-bg: #f0f0f0;
+    --control-hover: #e0e0e0;
     --primary-color: #4361ee;
     --secondary-color: #3f37c9;
     --accent-color: #4895ef;
     --success-color: #4cc9f0;
     --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     --hover-transform: translateY(-5px);
+}
+
+/* Sepia theme - Easy on eyes, warm */
+[data-theme="sepia"] {
+    --bg-color: #f4ecd8;
+    --text-color: #5c4b37;
+    --control-bg: #e6dcc6;
+    --control-hover: #d8ceb8;
+    --primary-color: #956f5a;
+    --secondary-color: #7d5d4c;
+    --accent-color: #a67c5f;
+    --card-shadow: 0 4px 6px rgba(92, 75, 55, 0.1);
+}
+
+/* Cream theme - Soft, neutral */
+[data-theme="cream"] {
+    --bg-color: #fff9f0;
+    --text-color: #4a4a4a;
+    --control-bg: #f5efe6;
+    --control-hover: #ebe5dc;
+    --primary-color: #b08968;
+    --secondary-color: #967559;
+    --accent-color: #c49b76;
+    --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.08);
+}
+
+/* Night theme - Dark with reduced blue light */
+[data-theme="night"] {
+    --bg-color: #1a1a2e;
+    --text-color: #e1e1e1;
+    --control-bg: #2a2a3e;
+    --control-hover: #3a3a4e;
+    --primary-color: #ffa45c;
+    --secondary-color: #ff7e3e;
+    --accent-color: #ffb067;
+    --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark theme - Standard dark */
+[data-theme="dark"] {
+    --bg-color: #1a1a1a;
+    --text-color: #ffffff;
+    --control-bg: #333333;
+    --control-hover: #444444;
+    --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Sage theme - Green tinted, natural */
+[data-theme="sage"] {
+    --bg-color: #f0f4f0;
+    --text-color: #2c3a2c;
+    --control-bg: #e1e8e1;
+    --control-hover: #d3ddd3;
+    --primary-color: #687d68;
+    --secondary-color: #566d56;
+    --accent-color: #7a8f7a;
+    --card-shadow: 0 4px 6px rgba(44, 58, 44, 0.1);
 }
 
 .header {
@@ -630,13 +693,77 @@
 
 /* Style for all books section */
 #all-books-container .book-card {
-    transition: all 0.3s ease;
+    position: relative;
 }
 
-.book-card-link {
-    text-decoration: none;
-    color: inherit;
+#all-books-container .book-card-link {
+    cursor: pointer;
+}
+
+.book-options {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 2;
+}
+
+.options-toggle {
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.options-toggle:hover {
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.options-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--bg-color);
+    border-radius: 8px;
+    box-shadow: var(--card-shadow);
+    padding: 0.5rem;
+    display: none;
+    min-width: 120px;
+}
+
+.options-menu.active {
     display: block;
+}
+
+.option-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    color: var(--text-color);
+    text-decoration: none;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.option-item:hover {
+    background: var(--control-bg);
+}
+
+.option-item.delete {
+    color: #dc3545;
 }
 
 /* Reading status indicator */
@@ -744,4 +871,64 @@
         transform: translateX(100%);
         opacity: 0;
     }
+}
+
+/* Theme selector styles */
+.theme-selector {
+    position: relative;
+}
+
+.theme-toggle {
+    background: var(--control-bg);
+    border: none;
+    padding: 0.8rem;
+    border-radius: 8px;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+    background: var(--control-hover);
+}
+
+.theme-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.5rem;
+    background: var(--bg-color);
+    border-radius: 8px;
+    box-shadow: var(--card-shadow);
+    padding: 0.5rem;
+    display: none;
+    min-width: 150px;
+    z-index: 1000;
+}
+
+.theme-menu.active {
+    display: block;
+}
+
+.theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.8rem;
+    width: 100%;
+    border: none;
+    background: none;
+    color: var(--text-color);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.theme-option:hover {
+    background: var(--control-bg);
+}
+
+.theme-option i {
+    width: 1.2rem;
+    text-align: center;
 } 
