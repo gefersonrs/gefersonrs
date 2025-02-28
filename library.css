@@ -597,8 +597,11 @@
     left: 50%;
     transform: translate(-50%, -50%);
     font-size: 0.8rem;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-color);
+    white-space: nowrap;
+    max-width: 80px;
+    text-align: center;
 }
 
 /* Continue button */
@@ -931,4 +934,22 @@
 .theme-option i {
     width: 1.2rem;
     text-align: center;
+}
+
+.book-type {
+    display: inline-block;
+    font-size: 0.7rem;
+    color: white;
+    background-color: var(--primary-color);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+
+#currently-reading-container .book-type {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    font-size: 0.8rem;
 } 

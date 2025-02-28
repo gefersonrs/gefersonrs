@@ -146,10 +146,17 @@ class BookStorage {
         const book = await this.get(id);
         if (!book) throw new Error('Book not found');
 
-        book.progress = progress;
+        // Store progress as a number (percentage for both PDF and EPUB)
+        book.progress = parseFloat(progress);
+        
+        // For PDF, store the page number in currentLocation
+        // For EPUB, store the CFI location
         book.currentLocation = currentLocation;
+        
+        // Update last read timestamp
         book.lastRead = new Date().toISOString();
         
+        console.log(`Saving progress for ${book.title}: ${progress}%, location: ${currentLocation}`);
         await this.put(book);
     }
 

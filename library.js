@@ -80,6 +80,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const circumference = 2 * Math.PI * 20;
             const offset = circumference - (progressPercent / 100) * circumference;
             
+            // Determine how to display progress based on file type
+            let progressDisplay = `${progressPercent}%`;
+            if (book.fileType === 'pdf' && book.currentLocation) {
+                progressDisplay = `Page ${book.currentLocation}`;
+            }
+            
             card.innerHTML = `
                 <div class="book-cover">
                     ${book.coverUrl 
@@ -91,6 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div>
                         <h3 class="book-title">${book.title}</h3>
                         <p class="book-author">${book.author || 'Unknown Author'}</p>
+                        <p class="book-type">${book.fileType === 'pdf' ? 'PDF' : 'EPUB'}</p>
                     </div>
                     <div style="display: flex; align-items: center; justify-content: space-between;">
                         <div class="progress-circle">
@@ -100,7 +107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     stroke-dasharray="${circumference}"
                                     stroke-dashoffset="${offset}" />
                             </svg>
-                            <div class="progress-text">${progressPercent}%</div>
+                            <div class="progress-text">${progressDisplay}</div>
                         </div>
                         <a href="reader.html?id=${book.id}" class="continue-button">
                             <i class="fas fa-book-reader"></i>

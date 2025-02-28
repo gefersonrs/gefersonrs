@@ -286,6 +286,7 @@ class EpubReader {
 
             this.pdfDoc = await loadingTask.promise;
             this.totalPdfPages = this.pdfDoc.numPages;
+            console.log(`PDF loaded with ${this.totalPdfPages} pages`);
             
             // Create PDF viewer container with current theme
             this.viewer.innerHTML = `
@@ -293,6 +294,9 @@ class EpubReader {
                     <div id="pdf-pages-container"></div>
                 </div>
             `;
+            
+            // Mark the viewer as PDF mode for CSS targeting
+            this.viewer.classList.add('pdf-mode');
 
             // Initialize containers and settings
             if (!document.getElementById('toc-container')) {
@@ -306,55 +310,88 @@ class EpubReader {
                 viewModeSection.style.display = 'none';
             }
 
-            // Initialize progress from stored value
-            if (bookData.progress) {
-                console.log(`Setting initial PDF progress: ${bookData.progress}%`);
-                this.progressText.textContent = `${bookData.progress}%`;
-                this.progressFill.style.width = `${bookData.progress}%`;
-                // For PDFs, also set the current page if available
-                if (bookData.currentLocation) {
-                    this.currentPdfPage = bookData.currentLocation;
-                    console.log(`Setting current PDF page: ${this.currentPdfPage}`);
-                }
-            }
+            // Store the current book
+            this.currentBook = bookData.id;
+            this.currentFormat = 'pdf';
 
-            // Store current progress before loading pages
-            const storedProgress = bookData.progress || 0;
+            // Initialize progress and current page from stored value
+            let storedPage = 1;
+            
+            if (bookData.progress) {
+                console.log(`Found stored progress: ${bookData.progress}%`);
+                
+                // For PDFs, use the stored page number if available
+                if (bookData.currentLocation && typeof bookData.currentLocation === 'number') {
+                    storedPage = Math.min(this.totalPdfPages, Math.max(1, bookData.currentLocation));
+                    console.log(`Using stored page number: ${storedPage}`);
+                } 
+                // Otherwise calculate from percentage
+                else {
+                    storedPage = Math.max(1, Math.min(this.totalPdfPages, 
+                        Math.round(bookData.progress * this.totalPdfPages / 100)));
+                    console.log(`Calculated page from percentage: ${storedPage}`);
+                }
+                
+                this.currentPdfPage = storedPage;
+                
+                // Immediately update the progress display
+                const progressPercentage = this.totalPdfPages > 1 
+                    ? ((storedPage - 1) / (this.totalPdfPages - 1)) * 100 
+                    : 100;
+                    
+                this.progressText.textContent = `${storedPage} / ${this.totalPdfPages}`;
+                this.progressFill.style.width = `${progressPercentage}%`;
+                
+                console.log(`Set initial PDF progress display: Page ${storedPage}/${this.totalPdfPages} (${progressPercentage.toFixed(2)}%)`);
+            } else {
+                console.log('No stored progress found, starting from page 1');
+                this.currentPdfPage = 1;
+                this.progressText.textContent = `1 / ${this.totalPdfPages}`;
+                this.progressFill.style.width = '0%';
+            }
             
             try {
-                // Load first few pages initially
-                const initialPagesToLoad = Math.min(3, this.totalPdfPages);
-                const loadingPromises = [];
-
-                for (let i = 1; i <= initialPagesToLoad; i++) {
-                    loadingPromises.push(this.renderPdfPage(i));
+                // Load visible pages around the current page
+                const pagesToLoad = [];
+                const startPage = Math.max(1, this.currentPdfPage - 1);
+                const endPage = Math.min(this.totalPdfPages, this.currentPdfPage + 2);
+                
+                for (let i = startPage; i <= endPage; i++) {
+                    pagesToLoad.push(i);
                 }
-
+                
+                // Add the first page if it's not already included
+                if (!pagesToLoad.includes(1)) {
+                    pagesToLoad.push(1);
+                }
+                
+                const loadingPromises = pagesToLoad.map(page => this.renderPdfPage(page));
+                
                 // Wait for initial pages to load
                 await Promise.all(loadingPromises);
                 
-                // Check if progress was changed during rendering
-                console.log(`PDF progress after initial render: ${this.progressText.textContent}`);
-                
-                // Ensure progress value wasn't reset during page loading
-                if (storedProgress > 0 && parseInt(this.progressText.textContent) === 0) {
-                    console.log(`Restoring PDF progress after render to: ${storedProgress}%`);
-                    this.progressText.textContent = `${storedProgress}%`;
-                    this.progressFill.style.width = `${storedProgress}%`;
-                }
-
                 // Remove loading overlay after initial pages are loaded
                 loadingOverlay.remove();
+                
+                // Scroll to the current page
+                const currentPageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                if (currentPageElement) {
+                    setTimeout(() => {
+                        currentPageElement.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                }
 
                 // Load remaining pages in the background
-                if (this.totalPdfPages > initialPagesToLoad) {
-                    this.loadRemainingPages(initialPagesToLoad + 1);
-                }
+                this.loadRemainingPages(1, pagesToLoad);
 
                 // Load TOC in parallel
                 const outline = await this.pdfDoc.getOutline();
                 if (outline) {
                     await this.displayPdfTOC(outline);
+                    // Update TOC highlight after it's loaded
+                    if (typeof this.updateTOCHighlight === 'function') {
+                        this.updateTOCHighlight();
+                    }
                 }
 
                 // Hide navigation controls
@@ -378,33 +415,59 @@ class EpubReader {
         }
     }
 
-    // Add method to load remaining PDF pages
-    async loadRemainingPages(startPage) {
-        const loadNextBatch = async (currentPage) => {
-            if (currentPage > this.totalPdfPages) return;
+    // Update the method to load remaining PDF pages
+    async loadRemainingPages(startPage, excludePages = []) {
+        // Create an array of page numbers to load
+        const pagesToLoad = [];
+        for (let i = 1; i <= this.totalPdfPages; i++) {
+            if (!excludePages.includes(i)) {
+                pagesToLoad.push(i);
+            }
+        }
+        
+        // Sort pages by proximity to the current page
+        pagesToLoad.sort((a, b) => 
+            Math.abs(a - this.currentPdfPage) - Math.abs(b - this.currentPdfPage)
+        );
+        
+        // Load pages in batches
+        const loadNextBatch = async (index) => {
+            if (index >= pagesToLoad.length) return;
 
             const batchSize = 3;
-            const endPage = Math.min(currentPage + batchSize - 1, this.totalPdfPages);
+            const endIndex = Math.min(index + batchSize, pagesToLoad.length);
             const promises = [];
 
-            for (let i = currentPage; i <= endPage; i++) {
-                promises.push(this.renderPdfPage(i));
+            for (let i = index; i < endIndex; i++) {
+                promises.push(this.renderPdfPage(pagesToLoad[i]));
             }
 
             await Promise.all(promises);
 
-            // Load next batch with a small delay to prevent UI blocking
-            if (endPage < this.totalPdfPages) {
-                setTimeout(() => loadNextBatch(endPage + 1), 100);
+            // Load next batch with a delay to prevent UI blocking
+            if (endIndex < pagesToLoad.length) {
+                setTimeout(() => loadNextBatch(endIndex), 500);
             }
         };
 
-        loadNextBatch(startPage);
+        loadNextBatch(0);
     }
 
     // Add this method to render individual PDF pages
     async renderPdfPage(pageNum) {
+        // Validate page number
+        if (pageNum < 1 || pageNum > this.totalPdfPages) {
+            console.error(`Invalid page number: ${pageNum}. Total pages: ${this.totalPdfPages}`);
+            return null;
+        }
+        
+        console.log(`Rendering PDF page ${pageNum}`);
         const pagesContainer = document.getElementById('pdf-pages-container');
+        if (!pagesContainer) {
+            console.error('PDF pages container not found');
+            return null;
+        }
+        
         const containerWidth = this.viewer.clientWidth;
         
         // Create page container if it doesn't exist
@@ -413,28 +476,75 @@ class EpubReader {
             pageContainer = document.createElement('div');
             pageContainer.id = `pdf-page-container-${pageNum}`;
             pageContainer.className = 'pdf-page-container';
+            pageContainer.dataset.pageNumber = pageNum;
+            
+            const pageLabel = document.createElement('div');
+            pageLabel.className = 'pdf-page-label';
+            pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
+            
             const canvas = document.createElement('canvas');
             canvas.id = `pdf-page-${pageNum}`;
+            
+            pageContainer.appendChild(pageLabel);
             pageContainer.appendChild(canvas);
-            pagesContainer.appendChild(pageContainer);
+            
+            // Add to container in correct order
+            let inserted = false;
+            const existingPages = pagesContainer.querySelectorAll('.pdf-page-container');
+            for (let i = 0; i < existingPages.length; i++) {
+                const page = existingPages[i];
+                const existingPageNum = parseInt(page.dataset.pageNumber);
+                if (existingPageNum > pageNum) {
+                    pagesContainer.insertBefore(pageContainer, page);
+                    inserted = true;
+                    break;
+                }
+            }
+            if (!inserted) {
+                pagesContainer.appendChild(pageContainer);
+            }
+            
+            // Add click handler to page for quick navigation
+            pageContainer.addEventListener('click', (e) => {
+                // Only handle clicks on the page label or border, not the content
+                if (e.target === pageLabel || e.target === pageContainer) {
+                    this.currentPdfPage = pageNum;
+                    this.updatePdfProgress();
+                    pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
         }
 
-        const canvas = pageContainer.querySelector('canvas');
-        const page = await this.pdfDoc.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1 });
-        
-        // Calculate scale based on container width and current font size
-        const baseScale = (containerWidth * 0.8) / viewport.width;
-        const finalScale = baseScale * (this.currentFontSize / 100);
-        const scaledViewport = page.getViewport({ scale: finalScale });
-
-        canvas.width = scaledViewport.width;
-        canvas.height = scaledViewport.height;
-
-        await page.render({
-            canvasContext: canvas.getContext('2d'),
-            viewport: scaledViewport
-        }).promise;
+        try {
+            const canvas = pageContainer.querySelector('canvas');
+            const page = await this.pdfDoc.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1 });
+            
+            // Calculate scale based on container width and current font size
+            const baseScale = (containerWidth * 0.8) / viewport.width;
+            const finalScale = baseScale * (this.currentFontSize / 100);
+            const scaledViewport = page.getViewport({ scale: finalScale });
+    
+            canvas.width = scaledViewport.width;
+            canvas.height = scaledViewport.height;
+    
+            await page.render({
+                canvasContext: canvas.getContext('2d'),
+                viewport: scaledViewport
+            }).promise;
+            
+            // Make sure this page is observed for visibility
+            if (this.pageObserver && !pageContainer.dataset.observed) {
+                this.pageObserver.observe(pageContainer);
+                pageContainer.dataset.observed = 'true';
+                console.log(`Added observer for page ${pageNum}`);
+            }
+            
+            return pageContainer;
+        } catch (error) {
+            console.error(`Error rendering page ${pageNum}:`, error);
+            return null;
+        }
     }
 
     async updateCurrentChapter(location) {
@@ -471,27 +581,97 @@ class EpubReader {
         const tocContainer = document.getElementById('toc-container') || this.createTOCContainer();
         tocContainer.innerHTML = '<h3>Table of Contents</h3>';
         
+        // Process destinations more reliably
+        const processDestination = async (dest) => {
+            try {
+                if (typeof dest === 'string') {
+                    // Named destination
+                    const destination = await this.pdfDoc.getDestination(dest);
+                    if (destination && destination.length > 0) {
+                        return await this.pdfDoc.getPageIndex(destination[0]) + 1;
+                    }
+                } else if (Array.isArray(dest) && dest.length > 0) {
+                    // Explicit destination
+                    return await this.pdfDoc.getPageIndex(dest[0]) + 1;
+                }
+            } catch (error) {
+                console.error('Error processing destination:', error);
+            }
+            return null;
+        };
+        
         const createTOCItem = (item) => {
             const link = document.createElement('a');
-            link.textContent = item.title;
+            link.textContent = item.title || 'Unnamed section';
             link.href = '#';
             link.onclick = async (e) => {
                 e.preventDefault();
-                if (item.dest) {
-                    const destination = await this.pdfDoc.getDestination(item.dest);
-                    if (destination) {
-                        const pageNumber = await this.pdfDoc.getPageIndex(destination[0]) + 1;
-                        await this.renderPdfPage(pageNumber);
-                        this.currentPdfPage = pageNumber;
-                        this.updatePdfProgress();
+                
+                let pageNumber = null;
+                
+                try {
+                    // Try multiple ways to get the page number
+                    if (item.dest) {
+                        pageNumber = await processDestination(item.dest);
+                    } 
+                    
+                    if (!pageNumber && item.pageNumber) {
+                        pageNumber = parseInt(item.pageNumber);
                     }
-                } else if (item.pageNumber) {
-                    await this.renderPdfPage(item.pageNumber);
-                    this.currentPdfPage = item.pageNumber;
-                    this.updatePdfProgress();
+                    
+                    if (!pageNumber && item.ref) {
+                        try {
+                            const num = parseInt(item.ref);
+                            if (!isNaN(num)) {
+                                const ref = await this.pdfDoc.getPageRef(num);
+                                if (ref) {
+                                    pageNumber = await this.pdfDoc.getPageIndex(ref) + 1;
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Error processing page ref:', e);
+                        }
+                    }
+                    
+                    // Finally, see if we have a page from PDF.js annotations
+                    if (!pageNumber && item.page) {
+                        pageNumber = parseInt(item.page);
+                    }
+                    
+                    // Now navigate to the page if we found one
+                    if (pageNumber && pageNumber > 0 && pageNumber <= this.totalPdfPages) {
+                        console.log(`TOC navigation to page ${pageNumber} from "${item.title}"`);
+                        
+                        // Update current page and make sure the page is rendered
+                        this.currentPdfPage = pageNumber;
+                        const pageContainer = await this.renderPdfPage(pageNumber);
+                        
+                        // Force progress update
+                        await this.updatePdfProgress();
+                        
+                        // Highlight this TOC item
+                        document.querySelectorAll('#toc-container a').forEach(a => 
+                            a.classList.remove('current-chapter'));
+                        link.classList.add('current-chapter');
+                        
+                        // Scroll to the page
+                        if (pageContainer) {
+                            pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                        
+                        // Store page number for highlighting later
+                        link.dataset.pageNumber = pageNumber;
+                    } else {
+                        console.warn(`Could not determine page number for TOC item: ${item.title}`);
+                    }
+                } catch (error) {
+                    console.error('Error navigating to TOC item:', error);
                 }
+                
+                // Hide TOC after clicking
                 tocContainer.classList.remove('active');
             };
+            
             return link;
         };
 
@@ -510,9 +690,51 @@ class EpubReader {
 
         if (outline && outline.length > 0) {
             tocContainer.appendChild(buildTOCList(outline));
+            console.log(`PDF TOC built with ${outline.length} top-level items`);
         } else {
             tocContainer.innerHTML += '<p>No table of contents available</p>';
+            console.log('No PDF outline available');
         }
+        
+        // Add a method to update TOC highlighting
+        this.updateTOCHighlight = () => {
+            if (!this.pdfDoc) return;
+            
+            const currentPage = this.currentPdfPage;
+            const links = tocContainer.querySelectorAll('a');
+            
+            // Remove current highlighting
+            links.forEach(link => link.classList.remove('current-chapter'));
+            
+            // Find the best matching TOC entry
+            let bestLink = null;
+            let bestPageDiff = Infinity;
+            
+            links.forEach(link => {
+                const pageNum = parseInt(link.dataset.pageNumber);
+                if (!isNaN(pageNum)) {
+                    // For items before current page, the diff is always positive
+                    // For items after current page, we don't want to highlight them
+                    if (pageNum <= currentPage) {
+                        const diff = currentPage - pageNum;
+                        if (diff < bestPageDiff) {
+                            bestPageDiff = diff;
+                            bestLink = link;
+                        }
+                    }
+                }
+            });
+            
+            // Highlight the best match if found
+            if (bestLink) {
+                bestLink.classList.add('current-chapter');
+                
+                // Only scroll while TOC is visible
+                if (tocContainer.classList.contains('active')) {
+                    bestLink.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        };
     }
 
     displayTOC(toc) {
@@ -554,7 +776,6 @@ class EpubReader {
         const container = document.createElement('div');
         container.id = 'toc-container';
         document.body.appendChild(container);
-        this.tocContainer = container;
         return container;
     }
 
@@ -564,7 +785,11 @@ class EpubReader {
             if (this.pdfDoc && this.currentPdfPage > 1) {
                 this.currentPdfPage--;
                 await this.renderPdfPage(this.currentPdfPage);
+                // Force update progress
                 this.updatePdfProgress();
+                // Scroll to the current page
+                const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
             } else if (this.rendition) {
                 this.rendition.prev();
             }
@@ -574,7 +799,11 @@ class EpubReader {
             if (this.pdfDoc && this.currentPdfPage < this.totalPdfPages) {
                 this.currentPdfPage++;
                 await this.renderPdfPage(this.currentPdfPage);
+                // Force update progress
                 this.updatePdfProgress();
+                // Scroll to the current page
+                const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
             } else if (this.rendition) {
                 this.rendition.next();
             }
@@ -659,14 +888,29 @@ class EpubReader {
 
         // TOC toggle
         this.tocToggle.addEventListener('click', (e) => {
+            e.preventDefault();
             e.stopPropagation();
-            console.log('TOC toggle clicked'); // Debug log
-            const tocContainer = document.getElementById('toc-container');
-            if (tocContainer) {
-                tocContainer.classList.toggle('active');
-                // Close settings panel when opening TOC
-                this.settingsPanel.classList.remove('active');
+            
+            // Create TOC container if it doesn't exist
+            let tocContainer = document.getElementById('toc-container');
+            if (!tocContainer) {
+                tocContainer = this.createTOCContainer();
+                console.log('TOC container created');
             }
+            
+            console.log('TOC toggle clicked, current active state:', tocContainer.classList.contains('active'));
+            
+            // Toggle TOC visibility
+            tocContainer.classList.toggle('active');
+            
+            // Update TOC highlight when showing
+            if (tocContainer.classList.contains('active') && typeof this.updateTOCHighlight === 'function') {
+                console.log('Updating TOC highlight');
+                this.updateTOCHighlight();
+            }
+            
+            // Close settings panel when opening TOC
+            this.settingsPanel.classList.remove('active');
         });
 
         // Keyboard navigation
@@ -676,11 +920,17 @@ class EpubReader {
                     this.currentPdfPage--;
                     await this.renderPdfPage(this.currentPdfPage);
                     this.updatePdfProgress();
+                    // Scroll to the current page
+                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
                 }
                 if (event.key === 'ArrowRight' && this.currentPdfPage < this.totalPdfPages) {
                     this.currentPdfPage++;
                     await this.renderPdfPage(this.currentPdfPage);
                     this.updatePdfProgress();
+                    // Scroll to the current page
+                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
                 }
             } else if (this.rendition) {
                 if (event.key === 'ArrowLeft') this.rendition.prev();
@@ -732,52 +982,110 @@ class EpubReader {
     }
 
     // Add this method to properly track PDF progress
-    async updatePdfProgress() {
-        if (!this.pdfDoc) return;
+    updatePdfProgress() {
+        // Validate current page
+        if (isNaN(this.currentPdfPage) || this.currentPdfPage < 1) {
+            this.currentPdfPage = 1;
+            console.warn('Invalid current page, resetting to 1');
+        } else if (this.currentPdfPage > this.totalPdfPages) {
+            this.currentPdfPage = this.totalPdfPages;
+            console.warn(`Current page out of range, resetting to ${this.totalPdfPages}`);
+        }
         
-        const progress = Math.floor((this.currentPdfPage / this.totalPdfPages) * 100);
-        console.log(`PDF progress calculated in updatePdfProgress: ${progress}%`);
-        this.progressText.textContent = `${progress}%`;
-        this.progressFill.style.width = `${progress}%`;
-
-        // Save progress
-        const urlParams = new URLSearchParams(window.location.search);
-        const bookId = urlParams.get('id');
-        if (bookId) {
-            await this.storage.updateProgress(bookId, progress, this.currentPdfPage);
-            console.log(`PDF progress saved for book ${bookId}: ${progress}%`);
+        // Calculate progress as a percentage for storage
+        const progressPercentage = this.totalPdfPages > 1 
+            ? ((this.currentPdfPage - 1) / (this.totalPdfPages - 1)) * 100 
+            : 100;
+        
+        console.log(`PDF progress: ${progressPercentage.toFixed(2)}% (Page ${this.currentPdfPage}/${this.totalPdfPages})`);
+        
+        // Update progress elements with page numbers for display
+        const progressText = document.getElementById('progress-text');
+        if (progressText) {
+            progressText.textContent = `${this.currentPdfPage} / ${this.totalPdfPages}`;
+        }
+        
+        const progressFill = document.getElementById('progress-fill');
+        if (progressFill) {
+            progressFill.style.width = `${progressPercentage}%`;
+        }
+        
+        // Save progress to storage
+        try {
+            // Get the book ID from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const bookId = urlParams.get('id');
+            
+            if (bookId) {
+                // Save both the percentage and the page number
+                this.storage.updateProgress(
+                    bookId,
+                    progressPercentage,  // For compatibility with EPUB progress
+                    this.currentPdfPage  // Store the actual page number
+                ).then(() => {
+                    console.log(`Progress saved for book ${bookId}: ${progressPercentage.toFixed(2)}% (Page ${this.currentPdfPage})`);
+                }).catch(error => {
+                    console.error('Error saving progress:', error);
+                });
+            } else {
+                console.warn('No book ID found in URL, progress not saved');
+            }
+        } catch (error) {
+            console.error('Error saving progress:', error);
         }
     }
 
     // Also add back the intersection observer to track current page
     observePdfPages() {
+        // Remove any existing observers
+        if (this.pageObserver) {
+            this.pageObserver.disconnect();
+            this.pageObserver = null;
+        }
+        
         const options = {
             root: this.viewer,
-            threshold: 0.5 // 50% visibility
+            threshold: [0.1, 0.5, 0.9], // Track multiple visibility thresholds
+            rootMargin: "0px"
         };
 
-        const observer = new IntersectionObserver((entries) => {
+        this.pageObserver = new IntersectionObserver((entries) => {
+            // Find the most visible page
+            let mostVisibleEntry = null;
+            let highestVisibility = 0;
+            
             entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const pageNum = parseInt(entry.target.querySelector('canvas').id.split('-')[2]);
-                    
-                    // Only update progress if the page actually changed
-                    // This prevents resetting progress on initial load
-                    if (this.currentPdfPage !== pageNum) {
-                        console.log(`Observed page change from ${this.currentPdfPage} to ${pageNum}`);
-                        this.currentPdfPage = pageNum;
-                        this.updatePdfProgress();
-                        this.updateTOCHighlight();
-                    } else {
-                        console.log(`Observed current page: ${pageNum} (no change)`);
-                    }
+                if (entry.isIntersecting && entry.intersectionRatio > highestVisibility) {
+                    highestVisibility = entry.intersectionRatio;
+                    mostVisibleEntry = entry;
                 }
             });
+            
+            // Only update if we found a visible page
+            if (mostVisibleEntry) {
+                const pageElement = mostVisibleEntry.target;
+                const pageNum = parseInt(pageElement.dataset.pageNumber);
+                
+                if (!isNaN(pageNum) && pageNum > 0) {
+                    console.log(`Observed page ${pageNum} with ${(highestVisibility*100).toFixed(1)}% visibility`);
+                    
+                    // Update only if the page changed
+                    if (this.currentPdfPage !== pageNum) {
+                        console.log(`Changing current page from ${this.currentPdfPage} to ${pageNum}`);
+                        this.currentPdfPage = pageNum;
+                        this.updatePdfProgress();
+                    }
+                }
+            }
         }, options);
 
-        document.querySelectorAll('.pdf-page-container').forEach(page => {
-            observer.observe(page);
+        // Observe all PDF page containers
+        const pages = document.querySelectorAll('.pdf-page-container');
+        pages.forEach(page => {
+            this.pageObserver.observe(page);
         });
+        
+        console.log(`Set up observer for ${pages.length} PDF pages`);
     }
 
     // Add this new method to highlight current chapter
@@ -813,6 +1121,244 @@ class EpubReader {
                 currentChapter.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         }
+    }
+
+    async loadPDF(pdfPath, progress) {
+        console.log(`Loading PDF: ${pdfPath} with progress ${progress}`);
+        try {
+            // Clear current content
+            document.getElementById('epub-container').style.display = 'none';
+            document.getElementById('pdf-container').style.display = 'flex';
+            
+            const pdfPagesContainer = document.getElementById('pdf-pages-container');
+            if (pdfPagesContainer) {
+                pdfPagesContainer.innerHTML = '';
+            }
+            
+            // Show loading indicator
+            this.showLoading(true);
+            
+            // Load the PDF document
+            const loadingTask = pdfjsLib.getDocument(pdfPath);
+            loadingTask.onProgress = (progressData) => {
+                if (progressData.total > 0) {
+                    const percent = (progressData.loaded / progressData.total) * 100;
+                    console.log(`PDF loading: ${percent.toFixed(2)}%`);
+                }
+            };
+            
+            this.pdfDoc = await loadingTask.promise;
+            this.totalPdfPages = this.pdfDoc.numPages;
+            console.log(`PDF loaded with ${this.totalPdfPages} pages`);
+            
+            // Set initial page to stored progress or first page
+            const storedPage = progress ? Math.max(1, Math.min(this.totalPdfPages, Math.round(progress * this.totalPdfPages))) : 1;
+            this.currentPdfPage = storedPage;
+            console.log(`Starting at page ${this.currentPdfPage} based on progress ${progress}`);
+            
+            // Create page containers for the PDF
+            const visibleRange = 2; // Number of pages to load before and after current page
+            const initialPagePromises = [];
+            
+            // Create observer for page visibility
+            this.setupPdfObserver();
+            
+            // Preload range of pages around the current page
+            const startPage = Math.max(1, this.currentPdfPage - visibleRange);
+            const endPage = Math.min(this.totalPdfPages, this.currentPdfPage + visibleRange);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                initialPagePromises.push(this.renderPdfPage(i));
+            }
+            
+            // Wait for initial pages to render
+            await Promise.all(initialPagePromises);
+            
+            // Hide loading indicator
+            this.showLoading(false);
+            
+            // Scroll to current page
+            const currentPageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+            if (currentPageElement) {
+                currentPageElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+            }
+            
+            // Update TOC and progress
+            this.displayPdfTOC();
+            this.updatePdfProgress();
+            
+            // Add lazy loading for remaining pages when scrolling
+            this.setupPdfLazyLoading();
+            
+            // Setup keyboard navigation
+            this.setupPdfKeyboardNavigation();
+            
+            return true;
+        } catch (error) {
+            console.error('Error loading PDF:', error);
+            this.showLoading(false);
+            
+            // Show error message
+            const errorElement = document.createElement('div');
+            errorElement.className = 'error-message';
+            errorElement.textContent = `Failed to load PDF: ${error.message}`;
+            document.getElementById('pdf-pages-container').appendChild(errorElement);
+            
+            return false;
+        }
+    }
+    
+    setupPdfObserver() {
+        // Remove existing observer if any
+        if (this.pageObserver) {
+            this.pageObserver.disconnect();
+        }
+        
+        // Create new observer with multiple thresholds for better accuracy
+        this.pageObserver = new IntersectionObserver((entries) => {
+            // Find the most visible page
+            let maxVisibility = 0;
+            let mostVisiblePage = null;
+            
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageElement = entry.target;
+                    const pageNum = parseInt(pageElement.dataset.pageNumber);
+                    const visibilityRatio = entry.intersectionRatio;
+                    
+                    console.log(`Page ${pageNum} visibility: ${(visibilityRatio * 100).toFixed(2)}%`);
+                    
+                    if (visibilityRatio > maxVisibility) {
+                        maxVisibility = visibilityRatio;
+                        mostVisiblePage = pageNum;
+                    }
+                }
+            });
+            
+            // Update current page if the most visible page has changed
+            if (mostVisiblePage !== null && mostVisiblePage !== this.currentPdfPage) {
+                console.log(`Changing current page from ${this.currentPdfPage} to ${mostVisiblePage} (visibility: ${(maxVisibility * 100).toFixed(2)}%)`);
+                this.currentPdfPage = mostVisiblePage;
+                this.updatePdfProgress();
+                this.updateTOCHighlight();
+            }
+        }, {
+            root: null,
+            rootMargin: '0px',
+            threshold: [0.1, 0.25, 0.5, 0.75, 0.9] // Multiple thresholds for better accuracy
+        });
+    }
+    
+    setupPdfLazyLoading() {
+        // Create intersection observer for lazy loading pages
+        const lazyLoadObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const container = entry.target;
+                    const pageNum = parseInt(container.dataset.pageNumber);
+                    
+                    // Load pages before and after
+                    const pagesToLoad = [];
+                    for (let i = Math.max(1, pageNum - 2); i <= Math.min(this.totalPdfPages, pageNum + 2); i++) {
+                        pagesToLoad.push(i);
+                    }
+                    
+                    // Render all needed pages
+                    pagesToLoad.forEach(num => {
+                        if (!document.getElementById(`pdf-page-container-${num}`)) {
+                            this.renderPdfPage(num);
+                        }
+                    });
+                    
+                    // Stop observing once loaded
+                    lazyLoadObserver.unobserve(container);
+                }
+            });
+        }, {
+            root: null,
+            rootMargin: '500px', // Start loading when page is within 500px
+            threshold: 0.1
+        });
+        
+        // Create placeholder containers for all pages
+        const pagesContainer = document.getElementById('pdf-pages-container');
+        for (let i = 1; i <= this.totalPdfPages; i++) {
+            // Skip pages that are already rendered
+            if (document.getElementById(`pdf-page-container-${i}`)) {
+                continue;
+            }
+            
+            // Create placeholder for lazy loading
+            const placeholder = document.createElement('div');
+            placeholder.id = `pdf-page-container-${i}`;
+            placeholder.className = 'pdf-page-container placeholder';
+            placeholder.dataset.pageNumber = i;
+            placeholder.style.minHeight = '500px';
+            placeholder.innerHTML = `<div class="pdf-page-label">Page ${i} of ${this.totalPdfPages}</div><div class="pdf-placeholder">Loading page ${i}...</div>`;
+            
+            pagesContainer.appendChild(placeholder);
+            
+            // Observe for lazy loading
+            lazyLoadObserver.observe(placeholder);
+        }
+    }
+    
+    setupPdfKeyboardNavigation() {
+        // Add keyboard navigation for PDF
+        document.addEventListener('keydown', (event) => {
+            if (this.isReaderOpen && this.currentFormat === 'pdf') {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                    this.prevPdfPage();
+                } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                    this.nextPdfPage();
+                } else if (event.key === 'Home') {
+                    this.goToPdfPage(1);
+                } else if (event.key === 'End') {
+                    this.goToPdfPage(this.totalPdfPages);
+                }
+            }
+        });
+    }
+
+    // Navigation methods for PDF
+    nextPdfPage() {
+        if (this.currentPdfPage < this.totalPdfPages) {
+            this.goToPdfPage(this.currentPdfPage + 1);
+        }
+    }
+    
+    prevPdfPage() {
+        if (this.currentPdfPage > 1) {
+            this.goToPdfPage(this.currentPdfPage - 1);
+        }
+    }
+    
+    goToPdfPage(pageNum) {
+        if (pageNum < 1 || pageNum > this.totalPdfPages) {
+            console.error(`Invalid page number: ${pageNum}. Total pages: ${this.totalPdfPages}`);
+            return;
+        }
+        
+        console.log(`Navigating to PDF page ${pageNum}`);
+        this.currentPdfPage = pageNum;
+        
+        // Ensure page is rendered
+        const pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
+        if (!pageContainer || pageContainer.classList.contains('placeholder')) {
+            // If page doesn't exist or is just a placeholder, render it
+            this.renderPdfPage(pageNum).then(container => {
+                if (container) {
+                    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        } else {
+            // Page exists, scroll to it
+            pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        
+        // Update progress and TOC highlight
+        this.updatePdfProgress();
+        this.updateTOCHighlight();
     }
 }
 
