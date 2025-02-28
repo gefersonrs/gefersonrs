@@ -185,12 +185,22 @@ class EpubReader {
             this.rendition.themes.select(this.currentTheme);
             this.rendition.themes.fontSize(`${this.currentFontSize}%`);
 
+            // Initialize progress from stored value
+            if (bookData.progress) {
+                console.log(`Setting initial EPUB progress: ${bookData.progress}%`);
+                this.progressText.textContent = `${bookData.progress}%`;
+                this.progressFill.style.width = `${bookData.progress}%`;
+            }
+
             // Load TOC in parallel with initial display
             const tocPromise = this.book.loaded.navigation.then(navigation => {
                 if (navigation.toc) {
                     this.displayTOC(navigation.toc);
                 }
             });
+
+            // Store current progress before display
+            const storedProgress = bookData.progress || 0;
 
             // Generate locations in the background after initial display
             const displayPromise = bookData.currentLocation 
@@ -199,6 +209,17 @@ class EpubReader {
 
             // Wait for initial display before removing loading overlay
             await displayPromise;
+            
+            // Check if progress was changed during display
+            console.log(`EPUB progress after display: ${this.progressText.textContent}`);
+            
+            // Ensure progress value wasn't reset during display
+            if (storedProgress > 0 && parseInt(this.progressText.textContent) === 0) {
+                console.log(`Restoring progress after display to: ${storedProgress}%`);
+                this.progressText.textContent = `${storedProgress}%`;
+                this.progressFill.style.width = `${storedProgress}%`;
+            }
+            
             loadingOverlay.remove();
 
             // Continue with background tasks
@@ -213,18 +234,28 @@ class EpubReader {
                 let progress = Math.floor((location.start.percentage || 0) * 100);
                 if (location.start.percentage > 0.995) progress = 100;
                 
-                this.progressText.textContent = `${progress}%`;
-                this.progressFill.style.width = `${progress}%`;
+                // Get current progress value
+                const currentProgress = parseInt(this.progressText.textContent) || 0;
                 
-                // Update current chapter
-                this.updateCurrentChapter(location);
-                
-                // Save progress
-                this.storage.updateProgress(
-                    bookData.id,
-                    progress,
-                    location.start.cfi
-                ).catch(console.error);
+                // Only update progress if it's higher than the current value
+                // This prevents the progress from being reset to a lower value when opening a book
+                if (progress >= currentProgress) {
+                    console.log(`Updating progress from ${currentProgress}% to ${progress}%`);
+                    this.progressText.textContent = `${progress}%`;
+                    this.progressFill.style.width = `${progress}%`;
+                    
+                    // Update current chapter
+                    this.updateCurrentChapter(location);
+                    
+                    // Save progress
+                    this.storage.updateProgress(
+                        bookData.id,
+                        progress,
+                        location.start.cfi
+                    ).catch(console.error);
+                } else {
+                    console.log(`Not updating progress: current=${currentProgress}%, new=${progress}%`);
+                }
             });
 
         } catch (error) {
@@ -275,6 +306,21 @@ class EpubReader {
                 viewModeSection.style.display = 'none';
             }
 
+            // Initialize progress from stored value
+            if (bookData.progress) {
+                console.log(`Setting initial PDF progress: ${bookData.progress}%`);
+                this.progressText.textContent = `${bookData.progress}%`;
+                this.progressFill.style.width = `${bookData.progress}%`;
+                // For PDFs, also set the current page if available
+                if (bookData.currentLocation) {
+                    this.currentPdfPage = bookData.currentLocation;
+                    console.log(`Setting current PDF page: ${this.currentPdfPage}`);
+                }
+            }
+
+            // Store current progress before loading pages
+            const storedProgress = bookData.progress || 0;
+            
             try {
                 // Load first few pages initially
                 const initialPagesToLoad = Math.min(3, this.totalPdfPages);
@@ -286,6 +332,16 @@ class EpubReader {
 
                 // Wait for initial pages to load
                 await Promise.all(loadingPromises);
+                
+                // Check if progress was changed during rendering
+                console.log(`PDF progress after initial render: ${this.progressText.textContent}`);
+                
+                // Ensure progress value wasn't reset during page loading
+                if (storedProgress > 0 && parseInt(this.progressText.textContent) === 0) {
+                    console.log(`Restoring PDF progress after render to: ${storedProgress}%`);
+                    this.progressText.textContent = `${storedProgress}%`;
+                    this.progressFill.style.width = `${storedProgress}%`;
+                }
 
                 // Remove loading overlay after initial pages are loaded
                 loadingOverlay.remove();
@@ -680,6 +736,7 @@ class EpubReader {
         if (!this.pdfDoc) return;
         
         const progress = Math.floor((this.currentPdfPage / this.totalPdfPages) * 100);
+        console.log(`PDF progress calculated in updatePdfProgress: ${progress}%`);
         this.progressText.textContent = `${progress}%`;
         this.progressFill.style.width = `${progress}%`;
 
@@ -688,6 +745,7 @@ class EpubReader {
         const bookId = urlParams.get('id');
         if (bookId) {
             await this.storage.updateProgress(bookId, progress, this.currentPdfPage);
+            console.log(`PDF progress saved for book ${bookId}: ${progress}%`);
         }
     }
 
@@ -702,9 +760,17 @@ class EpubReader {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const pageNum = parseInt(entry.target.querySelector('canvas').id.split('-')[2]);
-                    this.currentPdfPage = pageNum;
-                    this.updatePdfProgress();
-                    this.updateTOCHighlight();
+                    
+                    // Only update progress if the page actually changed
+                    // This prevents resetting progress on initial load
+                    if (this.currentPdfPage !== pageNum) {
+                        console.log(`Observed page change from ${this.currentPdfPage} to ${pageNum}`);
+                        this.currentPdfPage = pageNum;
+                        this.updatePdfProgress();
+                        this.updateTOCHighlight();
+                    } else {
+                        console.log(`Observed current page: ${pageNum} (no change)`);
+                    }
                 }
             });
         }, options);
