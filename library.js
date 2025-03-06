@@ -192,7 +192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('reading-books').textContent = 
             books.filter(book => book.progress > 0 && book.progress < 100).length;
         document.getElementById('completed-books').textContent = 
-            books.filter(book => book.progress === 100).length;
+            books.filter(book => book.progress >= 98).length;
     }
 
     // Add this toast notification system
