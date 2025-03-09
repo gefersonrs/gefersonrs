@@ -164,6 +164,10 @@ class EpubReader {
                 body: { 
                     color: '#e1e1e1',
                     background: '#1a1a2e'
+                },
+                a: {
+                    color: '#80ccff',  // Light blue color for links in night mode
+                    'text-decoration': 'underline'
                 }
             });
 
@@ -171,6 +175,10 @@ class EpubReader {
                 body: { 
                     color: '#ffffff',
                     background: '#1a1a1a'
+                },
+                a: {
+                    color: '#80ccff',  // Light blue color for links in dark mode
+                    'text-decoration': 'underline'
                 }
             });
 
@@ -234,13 +242,17 @@ class EpubReader {
                 let progress = Math.floor((location.start.percentage || 0) * 100);
                 if (location.start.percentage > 0.995) progress = 100;
                 
+                // Store whether this is a user-initiated navigation (like clicking a TOC item)
+                const isDirectNavigation = this.isDirectNavigation || false;
+                // Reset the flag
+                this.isDirectNavigation = false;
+                
                 // Get current progress value
                 const currentProgress = parseInt(this.progressText.textContent) || 0;
                 
-                // Only update progress if it's higher than the current value
-                // This prevents the progress from being reset to a lower value when opening a book
-                if (progress >= currentProgress) {
-                    console.log(`Updating progress from ${currentProgress}% to ${progress}%`);
+                // Always update progress for direct navigation or when progress increases
+                if (isDirectNavigation || progress >= currentProgress) {
+                    console.log(`Updating progress from ${currentProgress}% to ${progress}%${isDirectNavigation ? ' (direct navigation)' : ''}`);
                     this.progressText.textContent = `${progress}%`;
                     this.progressFill.style.width = `${progress}%`;
                     
@@ -456,68 +468,98 @@ class EpubReader {
     // Add this method to render individual PDF pages
     async renderPdfPage(pageNum) {
         // Validate page number
-        if (pageNum < 1 || pageNum > this.totalPdfPages) {
+        if (!this.pdfDoc || pageNum < 1 || pageNum > this.totalPdfPages) {
             console.error(`Invalid page number: ${pageNum}. Total pages: ${this.totalPdfPages}`);
             return null;
         }
         
         console.log(`Rendering PDF page ${pageNum}`);
-        const pagesContainer = document.getElementById('pdf-pages-container');
-        if (!pagesContainer) {
+        
+        // Get the PDF page container or create one if needed
+        const pdfPagesContainer = document.getElementById('pdf-pages-container');
+        if (!pdfPagesContainer) {
             console.error('PDF pages container not found');
             return null;
         }
         
-        const containerWidth = this.viewer.clientWidth;
-        
-        // Create page container if it doesn't exist
         let pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
+        
+        // If the container doesn't exist, create it
         if (!pageContainer) {
+            console.log(`Creating new container for page ${pageNum}`);
+            
             pageContainer = document.createElement('div');
             pageContainer.id = `pdf-page-container-${pageNum}`;
-            pageContainer.className = 'pdf-page-container';
+            pageContainer.className = 'pdf-page-container placeholder';
             pageContainer.dataset.pageNumber = pageNum;
             
             const pageLabel = document.createElement('div');
             pageLabel.className = 'pdf-page-label';
             pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
             
-            const canvas = document.createElement('canvas');
-            canvas.id = `pdf-page-${pageNum}`;
+            const placeholder = document.createElement('div');
+            placeholder.className = 'pdf-placeholder';
+            placeholder.textContent = `Loading page ${pageNum}...`;
             
             pageContainer.appendChild(pageLabel);
-            pageContainer.appendChild(canvas);
+            pageContainer.appendChild(placeholder);
             
-            // Add to container in correct order
+            // Find the correct position to insert the new page container
             let inserted = false;
-            const existingPages = pagesContainer.querySelectorAll('.pdf-page-container');
+            const existingPages = pdfPagesContainer.querySelectorAll('.pdf-page-container');
+            
             for (let i = 0; i < existingPages.length; i++) {
-                const page = existingPages[i];
-                const existingPageNum = parseInt(page.dataset.pageNumber);
+                const existingPage = existingPages[i];
+                const existingPageNum = parseInt(existingPage.dataset.pageNumber);
                 if (existingPageNum > pageNum) {
-                    pagesContainer.insertBefore(pageContainer, page);
+                    pdfPagesContainer.insertBefore(pageContainer, existingPage);
                     inserted = true;
                     break;
                 }
             }
+            
             if (!inserted) {
-                pagesContainer.appendChild(pageContainer);
+                pdfPagesContainer.appendChild(pageContainer);
             }
             
             // Add click handler to page for quick navigation
             pageContainer.addEventListener('click', (e) => {
-                // Only handle clicks on the page label or border, not the content
-                if (e.target === pageLabel || e.target === pageContainer) {
+                // Only handle clicks on the page label or border
+                if (e.target === pageLabel || e.target === pageContainer || e.target === placeholder) {
                     this.currentPdfPage = pageNum;
+                    this.lastDirectPageChange = Date.now(); // Mark as direct navigation
                     this.updatePdfProgress();
                     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
         }
-
+        
+        // If this page is already rendered (not a placeholder), return it
+        if (!pageContainer.classList.contains('placeholder')) {
+            console.log(`Page ${pageNum} is already rendered`);
+            return pageContainer;
+        }
+        
         try {
-            const canvas = pageContainer.querySelector('canvas');
+            // Get the page from PDF.js
             const page = await this.pdfDoc.getPage(pageNum);
+            
+            // Clear the placeholder content
+            pageContainer.innerHTML = '';
+            
+            // Create a label for the page
+            const pageLabel = document.createElement('div');
+            pageLabel.className = 'pdf-page-label';
+            pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
+            pageContainer.appendChild(pageLabel);
+            
+            // Create a canvas for the PDF page
+            const canvas = document.createElement('canvas');
+            canvas.id = `pdf-page-${pageNum}`;
+            pageContainer.appendChild(canvas);
+            
+            // Calculate scale based on container width and current font size
+            const containerWidth = this.viewer.clientWidth;
             const viewport = page.getViewport({ scale: 1 });
             
             // Calculate scale based on container width and current font size
@@ -528,10 +570,14 @@ class EpubReader {
             canvas.width = scaledViewport.width;
             canvas.height = scaledViewport.height;
     
+            // Render the PDF page to the canvas
             await page.render({
                 canvasContext: canvas.getContext('2d'),
                 viewport: scaledViewport
             }).promise;
+            
+            // Remove the placeholder class
+            pageContainer.classList.remove('placeholder');
             
             // Make sure this page is observed for visibility
             if (this.pageObserver && !pageContainer.dataset.observed) {
@@ -642,25 +688,16 @@ class EpubReader {
                     if (pageNumber && pageNumber > 0 && pageNumber <= this.totalPdfPages) {
                         console.log(`TOC navigation to page ${pageNumber} from "${item.title}"`);
                         
-                        // Update current page and make sure the page is rendered
-                        this.currentPdfPage = pageNumber;
-                        const pageContainer = await this.renderPdfPage(pageNumber);
-                        
-                        // Force progress update
-                        await this.updatePdfProgress();
-                        
-                        // Highlight this TOC item
+                        // Highlight this TOC item before navigating
                         document.querySelectorAll('#toc-container a').forEach(a => 
                             a.classList.remove('current-chapter'));
                         link.classList.add('current-chapter');
                         
-                        // Scroll to the page
-                        if (pageContainer) {
-                            pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                        
                         // Store page number for highlighting later
                         link.dataset.pageNumber = pageNumber;
+                        
+                        // Use the improved goToPdfPage method for navigation
+                        this.goToPdfPage(pageNumber);
                     } else {
                         console.warn(`Could not determine page number for TOC item: ${item.title}`);
                     }
@@ -749,7 +786,14 @@ class EpubReader {
             link.href = '#';
             link.onclick = (e) => {
                 e.preventDefault();
+                
+                // Set the flag for direct navigation
+                this.isDirectNavigation = true;
+                
+                // Navigate to the chapter
                 this.rendition.display(chapter.href);
+                
+                // Hide the TOC
                 tocContainer.classList.remove('active');
             };
             item.appendChild(link);
@@ -784,6 +828,8 @@ class EpubReader {
         this.prevButton.addEventListener('click', async () => {
             if (this.pdfDoc && this.currentPdfPage > 1) {
                 this.currentPdfPage--;
+                // Mark this as a direct page change
+                this.lastDirectPageChange = Date.now();
                 await this.renderPdfPage(this.currentPdfPage);
                 // Force update progress
                 this.updatePdfProgress();
@@ -791,6 +837,8 @@ class EpubReader {
                 const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
                 if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
             } else if (this.rendition) {
+                // Set the flag for direct navigation
+                this.isDirectNavigation = true;
                 this.rendition.prev();
             }
         });
@@ -798,6 +846,8 @@ class EpubReader {
         this.nextButton.addEventListener('click', async () => {
             if (this.pdfDoc && this.currentPdfPage < this.totalPdfPages) {
                 this.currentPdfPage++;
+                // Mark this as a direct page change
+                this.lastDirectPageChange = Date.now();
                 await this.renderPdfPage(this.currentPdfPage);
                 // Force update progress
                 this.updatePdfProgress();
@@ -805,6 +855,8 @@ class EpubReader {
                 const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
                 if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
             } else if (this.rendition) {
+                // Set the flag for direct navigation
+                this.isDirectNavigation = true;
                 this.rendition.next();
             }
         });
@@ -1214,8 +1266,19 @@ class EpubReader {
             this.pageObserver.disconnect();
         }
         
+        // Track the last time a page was set directly via TOC or navigation buttons
+        this.lastDirectPageChange = Date.now();
+        
         // Create new observer with multiple thresholds for better accuracy
         this.pageObserver = new IntersectionObserver((entries) => {
+            // Only change pages via scrolling if we haven't directly navigated recently
+            // This prevents observer from overriding direct navigation
+            const timeSinceDirectChange = Date.now() - this.lastDirectPageChange;
+            if (timeSinceDirectChange < 1500) { // Increased timeout
+                console.log('Skipping observer update due to recent direct navigation');
+                return; // Skip observer updates for 1.5 seconds after direct navigation
+            }
+            
             // Find the most visible page
             let maxVisibility = 0;
             let mostVisiblePage = null;
@@ -1226,7 +1289,10 @@ class EpubReader {
                     const pageNum = parseInt(pageElement.dataset.pageNumber);
                     const visibilityRatio = entry.intersectionRatio;
                     
-                    console.log(`Page ${pageNum} visibility: ${(visibilityRatio * 100).toFixed(2)}%`);
+                    // Only log if significantly visible (reduces console spam)
+                    if (visibilityRatio > 0.3) {
+                        console.log(`Page ${pageNum} visibility: ${(visibilityRatio * 100).toFixed(2)}%`);
+                    }
                     
                     if (visibilityRatio > maxVisibility) {
                         maxVisibility = visibilityRatio;
@@ -1235,8 +1301,9 @@ class EpubReader {
                 }
             });
             
-            // Update current page if the most visible page has changed
-            if (mostVisiblePage !== null && mostVisiblePage !== this.currentPdfPage) {
+            // Only update if we have a significantly visible page (>40% visible)
+            // This prevents bouncing between pages when scrolling
+            if (mostVisiblePage !== null && mostVisiblePage !== this.currentPdfPage && maxVisibility > 0.4) {
                 console.log(`Changing current page from ${this.currentPdfPage} to ${mostVisiblePage} (visibility: ${(maxVisibility * 100).toFixed(2)}%)`);
                 this.currentPdfPage = mostVisiblePage;
                 this.updatePdfProgress();
@@ -1245,7 +1312,14 @@ class EpubReader {
         }, {
             root: null,
             rootMargin: '0px',
-            threshold: [0.1, 0.25, 0.5, 0.75, 0.9] // Multiple thresholds for better accuracy
+            threshold: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] // More thresholds for better accuracy
+        });
+        
+        // Observe all existing page containers
+        const pageContainers = document.querySelectorAll('.pdf-page-container');
+        pageContainers.forEach(container => {
+            this.pageObserver.observe(container);
+            container.dataset.observed = 'true';
         });
     }
     
@@ -1334,31 +1408,120 @@ class EpubReader {
     }
     
     goToPdfPage(pageNum) {
-        if (pageNum < 1 || pageNum > this.totalPdfPages) {
+        if (!this.pdfDoc || pageNum < 1 || pageNum > this.totalPdfPages) {
             console.error(`Invalid page number: ${pageNum}. Total pages: ${this.totalPdfPages}`);
             return;
         }
         
         console.log(`Navigating to PDF page ${pageNum}`);
+        
+        // Mark this as a direct navigation and update current page
+        this.lastDirectPageChange = Date.now();
         this.currentPdfPage = pageNum;
         
-        // Ensure page is rendered
-        const pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
-        if (!pageContainer || pageContainer.classList.contains('placeholder')) {
-            // If page doesn't exist or is just a placeholder, render it
-            this.renderPdfPage(pageNum).then(container => {
-                if (container) {
-                    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // First, check if the target page container exists
+        let pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
+        
+        if (!pageContainer) {
+            // If page container doesn't exist, we need to create it and render the page
+            console.log(`Page container for page ${pageNum} doesn't exist, creating new one`);
+            
+            const pdfPagesContainer = document.getElementById('pdf-pages-container');
+            if (!pdfPagesContainer) {
+                console.error('PDF pages container not found');
+                return;
+            }
+            
+            // Create placeholder for the page
+            pageContainer = document.createElement('div');
+            pageContainer.id = `pdf-page-container-${pageNum}`;
+            pageContainer.className = 'pdf-page-container placeholder';
+            pageContainer.dataset.pageNumber = pageNum;
+            
+            // Add placeholder content
+            const pageLabel = document.createElement('div');
+            pageLabel.className = 'pdf-page-label';
+            pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
+            
+            const placeholder = document.createElement('div');
+            placeholder.className = 'pdf-placeholder';
+            placeholder.textContent = `Loading page ${pageNum}...`;
+            
+            pageContainer.appendChild(pageLabel);
+            pageContainer.appendChild(placeholder);
+            
+            // Find the correct position to insert the new page container
+            let inserted = false;
+            const existingPages = pdfPagesContainer.querySelectorAll('.pdf-page-container');
+            
+            for (let i = 0; i < existingPages.length; i++) {
+                const existingPage = existingPages[i];
+                const existingPageNum = parseInt(existingPage.dataset.pageNumber);
+                if (existingPageNum > pageNum) {
+                    pdfPagesContainer.insertBefore(pageContainer, existingPage);
+                    inserted = true;
+                    break;
+                }
+            }
+            
+            if (!inserted) {
+                pdfPagesContainer.appendChild(pageContainer);
+            }
+        }
+        
+        // Next, start rendering if needed
+        if (pageContainer.classList.contains('placeholder')) {
+            // Render this page
+            this.renderPdfPage(pageNum).then(() => {
+                // After rendering, scroll to the page
+                const updatedContainer = document.getElementById(`pdf-page-container-${pageNum}`);
+                if (updatedContainer) {
+                    updatedContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Force update progress and TOC highlight
+                    this.updatePdfProgress();
+                    this.updateTOCHighlight();
+                    
+                    // Also render pages before and after for better experience
+                    const adjacentPages = [];
+                    for (let i = Math.max(1, pageNum - 1); i <= Math.min(this.totalPdfPages, pageNum + 1); i++) {
+                        if (i !== pageNum) {
+                            adjacentPages.push(i);
+                        }
+                    }
+                    
+                    // Render adjacent pages in the background
+                    adjacentPages.forEach(p => {
+                        const adjacentContainer = document.getElementById(`pdf-page-container-${p}`);
+                        if (adjacentContainer && adjacentContainer.classList.contains('placeholder')) {
+                            this.renderPdfPage(p);
+                        }
+                    });
                 }
             });
         } else {
-            // Page exists, scroll to it
+            // Page is already rendered, just scroll to it
             pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            // Force update progress and TOC highlight
+            this.updatePdfProgress();
+            this.updateTOCHighlight();
+            
+            // Render adjacent pages if needed
+            const adjacentPages = [];
+            for (let i = Math.max(1, pageNum - 1); i <= Math.min(this.totalPdfPages, pageNum + 1); i++) {
+                if (i !== pageNum) {
+                    adjacentPages.push(i);
+                }
+            }
+            
+            // Render adjacent pages in the background
+            adjacentPages.forEach(p => {
+                const adjacentContainer = document.getElementById(`pdf-page-container-${p}`);
+                if (adjacentContainer && adjacentContainer.classList.contains('placeholder')) {
+                    this.renderPdfPage(p);
+                }
+            });
         }
-        
-        // Update progress and TOC highlight
-        this.updatePdfProgress();
-        this.updateTOCHighlight();
     }
 }
 
