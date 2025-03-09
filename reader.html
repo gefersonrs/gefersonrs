@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reader</title>
+    <title>EPUB Reader</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="reader.css">
     <!-- Add PDF.js -->
@@ -20,7 +20,9 @@
     <div class="reader-container">
         <div class="top-bar">
             <div class="left-controls">
-                <a href="index.html" class="back-button"><i class="fas fa-arrow-left"></i></a>
+                <a href="index.html" class="back-button" title="Back to Library">
+                    <i class="fas fa-arrow-left"></i>
+                </a>
                 <h2 id="book-title">Loading...</h2>
             </div>
             
@@ -36,12 +38,19 @@
                     <i class="fas fa-list"></i>
                 </button>
                 <button id="settings-toggle" class="control-button" title="Settings">
-                    <i class="fas fa-cog"></i>
+                    <i class="fas fa-sliders"></i>
                 </button>
             </div>
         </div>
 
         <div class="settings-panel" id="settings-panel">
+            <div class="settings-header">
+                <h3>Reader Settings</h3>
+                <button id="close-settings" class="close-button">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
             <div class="settings-section">
                 <h3>View Mode</h3>
                 <div class="view-mode-controls">
@@ -83,7 +92,7 @@
                         <i class="fas fa-moon"></i> Cream
                     </button>
                     <button class="theme-option" data-theme="night">
-                        <i class="fas fa-stars"></i> Night
+                        <i class="fas fa-star"></i> Night
                     </button>
                     <button class="theme-option" data-theme="dark">
                         <i class="fas fa-circle"></i> Dark
@@ -93,19 +102,29 @@
                     </button>
                 </div>
             </div>
+
+            <div class="settings-section">
+                <h3>Book Progress</h3>
+                <div class="progress-actions">
+                    <button id="mark-completed" class="action-button">
+                        <i class="fas fa-check-circle"></i> Mark as Completed
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div class="navigation-controls">
-            <button id="prev-page" class="nav-button left">
+            <button id="prev-page" class="nav-button left" title="Previous Page">
                 <i class="fas fa-chevron-left"></i>
             </button>
-            <button id="next-page" class="nav-button right">
+            <button id="next-page" class="nav-button right" title="Next Page">
                 <i class="fas fa-chevron-right"></i>
             </button>
         </div>
 
         <div id="viewer" class="viewer"></div>
     </div>
+    
     <script src="storage.js"></script>
     <script src="reader.js"></script>
 </body>

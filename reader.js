@@ -9,6 +9,8 @@ class EpubReader {
         this.totalPdfPages = 0;
         this.pdfDoc = null;
         this.currentChapter = null;
+        this.currentBookId = null;
+        this.currentFormat = null;
         
         // DOM elements
         this.viewer = document.getElementById('viewer');
@@ -93,22 +95,36 @@ class EpubReader {
     }
 
     async loadBook(bookData) {
-        try {
-            this.bookTitle.textContent = bookData.title;
-            
-            if (bookData.fileType === 'pdf') {
-                await this.loadPdf(bookData);
-            } else {
-                await this.loadEpub(bookData);
-            }
-        } catch (error) {
-            console.error('Error loading book:', error);
-            throw error;
+        this.currentBookId = bookData.id;
+        
+        // Add detailed logging about the book data
+        console.log('Loading book:', {
+            id: bookData.id,
+            title: bookData.title,
+            format: bookData.format,
+            fileType: bookData.fileType,
+            hasData: !!bookData.data,
+            dataType: bookData.data ? typeof bookData.data : 'none'
+        });
+        
+        // Check both format and fileType properties to determine if the book is a PDF
+        if (bookData.format === 'pdf' || bookData.fileType === 'pdf') {
+            console.log('Detected PDF book');
+            // Set the currentFormat property for consistency
+            this.currentFormat = 'pdf';
+            await this.loadPdf(bookData);
+        } else {
+            console.log('Detected EPUB book');
+            // Set the currentFormat property for consistency
+            this.currentFormat = 'epub';
+            await this.loadEpub(bookData);
         }
     }
 
     async loadEpub(bookData) {
         try {
+            console.log('Loading EPUB book:', bookData.title);
+            
             // Show loading overlay
             const loadingOverlay = document.createElement('div');
             loadingOverlay.className = 'loading-overlay';
@@ -117,6 +133,19 @@ class EpubReader {
                 <div class="loading-text">Loading EPUB...</div>
             `;
             document.body.appendChild(loadingOverlay);
+            
+            // Ensure EPUB container is visible, PDF container is hidden
+            const pdfContainer = document.getElementById('pdf-container');
+            let epubContainer = document.getElementById('epub-container');
+            
+            if (pdfContainer) pdfContainer.style.display = 'none';
+            if (!epubContainer) {
+                // Create EPUB container if it doesn't exist
+                this.viewer.innerHTML = '<div id="epub-container"></div>';
+                epubContainer = document.getElementById('epub-container');
+            } else {
+                epubContainer.style.display = 'block';
+            }
 
             this.bookTitle.textContent = bookData.title;
             
@@ -209,6 +238,9 @@ class EpubReader {
 
             // Store current progress before display
             const storedProgress = bookData.progress || 0;
+            
+            // Add a flag to track initial load
+            let isFirstLocationChange = true;
 
             // Generate locations in the background after initial display
             const displayPromise = bookData.currentLocation 
@@ -242,17 +274,13 @@ class EpubReader {
                 let progress = Math.floor((location.start.percentage || 0) * 100);
                 if (location.start.percentage > 0.995) progress = 100;
                 
-                // Store whether this is a user-initiated navigation (like clicking a TOC item)
-                const isDirectNavigation = this.isDirectNavigation || false;
-                // Reset the flag
-                this.isDirectNavigation = false;
-                
                 // Get current progress value
                 const currentProgress = parseInt(this.progressText.textContent) || 0;
                 
-                // Always update progress for direct navigation or when progress increases
-                if (isDirectNavigation || progress >= currentProgress) {
-                    console.log(`Updating progress from ${currentProgress}% to ${progress}%${isDirectNavigation ? ' (direct navigation)' : ''}`);
+                // Only update progress if it's higher than the current value
+                // This prevents the progress from being reset to a lower value when opening a book
+                if (progress >= currentProgress) {
+                    console.log(`Updating progress from ${currentProgress}% to ${progress}%`);
                     this.progressText.textContent = `${progress}%`;
                     this.progressFill.style.width = `${progress}%`;
                     
@@ -278,6 +306,8 @@ class EpubReader {
 
     async loadPdf(bookData) {
         try {
+            console.log('Loading PDF book:', bookData.title);
+            
             // Show loading overlay
             const loadingOverlay = document.createElement('div');
             loadingOverlay.className = 'loading-overlay';
@@ -286,6 +316,21 @@ class EpubReader {
                 <div class="loading-text">Loading PDF...</div>
             `;
             document.body.appendChild(loadingOverlay);
+
+            // Ensure PDF container is visible, EPUB container is hidden
+            const epubContainer = document.getElementById('epub-container');
+            const pdfContainer = document.getElementById('pdf-container');
+            
+            if (epubContainer) epubContainer.style.display = 'none';
+            if (!pdfContainer) {
+                // Create PDF container if it doesn't exist
+                this.viewer.innerHTML = `
+                <div id="pdf-container" style="display: flex; flex-direction: column; height: 100%;">
+                    <div id="pdf-pages-container"></div>
+                </div>`;
+            } else {
+                pdfContainer.style.display = 'flex';
+            }
 
             // Load PDF document with optimized settings
             const loadingTask = pdfjsLib.getDocument({
@@ -890,105 +935,66 @@ class EpubReader {
             }
         });
 
+        // TOC toggle
+        this.tocToggle.addEventListener('click', () => {
+            const tocContainer = document.getElementById('toc-container');
+            if (tocContainer) {
+                tocContainer.classList.toggle('active');
+                // Close settings panel if open
+                this.settingsPanel.classList.remove('active');
+            }
+        });
+
         // Settings toggle
-        this.settingsToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
+        this.settingsToggle.addEventListener('click', () => {
             this.settingsPanel.classList.toggle('active');
-            
-            // Close TOC when opening settings
+            // Close TOC if open
             const tocContainer = document.getElementById('toc-container');
             if (tocContainer) {
                 tocContainer.classList.remove('active');
             }
         });
+        
+        // Close settings button
+        const closeSettingsButton = document.getElementById('close-settings');
+        if (closeSettingsButton) {
+            closeSettingsButton.addEventListener('click', () => {
+                this.settingsPanel.classList.remove('active');
+            });
+        }
 
         // Theme options
-        const themeOptions = document.querySelectorAll('.theme-option');
-        themeOptions.forEach(option => {
-            // Mark the current theme as active
-            if (option.dataset.theme === this.currentTheme) {
+        document.querySelectorAll('.theme-option').forEach(option => {
+            const theme = option.dataset.theme;
+            // Mark active theme
+            if (theme === this.currentTheme) {
                 option.classList.add('active');
             }
-
+            
             option.addEventListener('click', () => {
-                const theme = option.dataset.theme;
-                
-                // Update active state
-                themeOptions.forEach(opt => opt.classList.remove('active'));
+                // Update active class
+                document.querySelectorAll('.theme-option').forEach(el => 
+                    el.classList.remove('active'));
                 option.classList.add('active');
                 
                 // Apply theme
+                this.currentTheme = theme;
                 document.documentElement.setAttribute('data-theme', theme);
                 localStorage.setItem('theme', theme);
-                this.currentTheme = theme;
                 
-                // Update reader specific elements
                 if (this.rendition) {
                     this.rendition.themes.select(theme);
                 }
-                
-                const pdfContainer = document.getElementById('pdf-container');
-                if (pdfContainer) {
-                    pdfContainer.classList.toggle('dark-mode', theme === 'dark' || theme === 'night');
-                    this.renderAllPdfPages();
-                }
-
-                // Don't close the settings panel when changing theme
-                e.stopPropagation();
             });
         });
 
-        // TOC toggle
-        this.tocToggle.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Create TOC container if it doesn't exist
-            let tocContainer = document.getElementById('toc-container');
-            if (!tocContainer) {
-                tocContainer = this.createTOCContainer();
-                console.log('TOC container created');
-            }
-            
-            console.log('TOC toggle clicked, current active state:', tocContainer.classList.contains('active'));
-            
-            // Toggle TOC visibility
-            tocContainer.classList.toggle('active');
-            
-            // Update TOC highlight when showing
-            if (tocContainer.classList.contains('active') && typeof this.updateTOCHighlight === 'function') {
-                console.log('Updating TOC highlight');
-                this.updateTOCHighlight();
-            }
-            
-            // Close settings panel when opening TOC
-            this.settingsPanel.classList.remove('active');
-        });
-
-        // Keyboard navigation
-        document.addEventListener('keyup', async (event) => {
-            if (this.pdfDoc) {
-                if (event.key === 'ArrowLeft' && this.currentPdfPage > 1) {
-                    this.currentPdfPage--;
-                    await this.renderPdfPage(this.currentPdfPage);
-                    this.updatePdfProgress();
-                    // Scroll to the current page
-                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
-                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
-                }
-                if (event.key === 'ArrowRight' && this.currentPdfPage < this.totalPdfPages) {
-                    this.currentPdfPage++;
-                    await this.renderPdfPage(this.currentPdfPage);
-                    this.updatePdfProgress();
-                    // Scroll to the current page
-                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
-                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
-                }
-            } else if (this.rendition) {
-                if (event.key === 'ArrowLeft') this.rendition.prev();
-                if (event.key === 'ArrowRight') this.rendition.next();
-            }
-        });
+        // Add Mark as Completed button event
+        const markCompletedButton = document.getElementById('mark-completed');
+        if (markCompletedButton) {
+            markCompletedButton.addEventListener('click', () => {
+                this.markBookAsCompleted();
+            });
+        }
 
         // View mode controls
         this.viewModeButtons.forEach(button => {
@@ -1022,6 +1028,31 @@ class EpubReader {
                 e.stopPropagation();
             });
         }
+
+        // Keyboard navigation
+        document.addEventListener('keyup', async (event) => {
+            if (this.pdfDoc) {
+                if (event.key === 'ArrowLeft' && this.currentPdfPage > 1) {
+                    this.currentPdfPage--;
+                    await this.renderPdfPage(this.currentPdfPage);
+                    this.updatePdfProgress();
+                    // Scroll to the current page
+                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
+                }
+                if (event.key === 'ArrowRight' && this.currentPdfPage < this.totalPdfPages) {
+                    this.currentPdfPage++;
+                    await this.renderPdfPage(this.currentPdfPage);
+                    this.updatePdfProgress();
+                    // Scroll to the current page
+                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
+                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
+                }
+            } else if (this.rendition) {
+                if (event.key === 'ArrowLeft') this.rendition.prev();
+                if (event.key === 'ArrowRight') this.rendition.next();
+            }
+        });
     }
 
     updatePdfScale() {
@@ -1045,9 +1076,14 @@ class EpubReader {
         }
         
         // Calculate progress as a percentage for storage
-        const progressPercentage = this.totalPdfPages > 1 
+        let progressPercentage = this.totalPdfPages > 1 
             ? ((this.currentPdfPage - 1) / (this.totalPdfPages - 1)) * 100 
             : 100;
+        
+        // Consider book completed at 98% or higher
+        if (progressPercentage >= 98) {
+            progressPercentage = 100;
+        }
         
         console.log(`PDF progress: ${progressPercentage.toFixed(2)}% (Page ${this.currentPdfPage}/${this.totalPdfPages})`);
         
@@ -1521,6 +1557,48 @@ class EpubReader {
                     this.renderPdfPage(p);
                 }
             });
+        }
+    }
+
+    // Add new function to mark book as completed
+    async markBookAsCompleted() {
+        if (!this.currentBookId) {
+            console.error('No book is currently open');
+            return;
+        }
+
+        try {
+            // Set progress to 100%
+            await this.storage.updateProgress(
+                this.currentBookId,
+                100,
+                this.currentFormat === 'pdf' ? this.currentPdfPage : this.rendition.location.start.cfi
+            );
+
+            // Update UI
+            this.progressText.textContent = this.currentFormat === 'pdf' 
+                ? `${this.currentPdfPage} / ${this.totalPdfPages}` 
+                : '100%';
+            this.progressFill.style.width = '100%';
+
+            // Show confirmation message
+            const message = document.createElement('div');
+            message.className = 'completion-message';
+            message.textContent = 'Book marked as completed!';
+            document.body.appendChild(message);
+
+            setTimeout(() => {
+                message.classList.add('show');
+                setTimeout(() => {
+                    message.classList.remove('show');
+                    setTimeout(() => {
+                        message.remove();
+                    }, 300);
+                }, 2000);
+            }, 10);
+
+        } catch (error) {
+            console.error('Error marking book as completed:', error);
         }
     }
 }

@@ -180,6 +180,12 @@ class BookStorage {
                 console.log('Database lookup result:', book ? 'Book found' : 'Book not found');
                 if (book) {
                     console.log('Book data type:', book.fileType);
+                    
+                    // Ensure format property is set for compatibility
+                    if (!book.format && book.fileType) {
+                        book.format = book.fileType;
+                    }
+                    
                     try {
                         book.data = await this.getBookData(book);
                         console.log('Successfully converted book data');
