@@ -3,7 +3,12 @@ class EpubReader {
         this.storage = new BookStorage();
         this.book = null;
         this.rendition = null;
-        this.currentFontSize = parseInt(localStorage.getItem('fontSize')) || 100;
+        
+        // Separate font size settings for EPUB and PDF
+        this.epubFontSize = parseInt(localStorage.getItem('epubFontSize')) || 100;
+        this.pdfFontSize = parseInt(localStorage.getItem('pdfFontSize')) || 100;
+        this.currentFontSize = 100; // Will be set based on format when loading a book
+        
         this.currentViewMode = localStorage.getItem('viewMode') || 'scrolled';
         this.currentPdfPage = 1;
         this.totalPdfPages = 0;
@@ -33,7 +38,7 @@ class EpubReader {
         this.currentTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', this.currentTheme);
         
-        this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
+        // Font size display will be updated when a book is loaded
         this.applyViewMode(this.currentViewMode);
     }
 
@@ -134,6 +139,17 @@ class EpubReader {
             `;
             document.body.appendChild(loadingOverlay);
             
+            // Set format and use EPUB-specific font size
+            this.currentFormat = 'epub';
+            this.currentFontSize = this.epubFontSize;
+            this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
+            
+            // Store book ID for later use
+            this.currentBookId = bookData.id;
+            
+            // Get stored progress
+            const storedProgress = bookData.progress || 0;
+            
             // Ensure EPUB container is visible, PDF container is hidden
             const pdfContainer = document.getElementById('pdf-container');
             let epubContainer = document.getElementById('epub-container');
@@ -222,84 +238,114 @@ class EpubReader {
             this.rendition.themes.select(this.currentTheme);
             this.rendition.themes.fontSize(`${this.currentFontSize}%`);
 
-            // Initialize progress from stored value
-            if (bookData.progress) {
-                console.log(`Setting initial EPUB progress: ${bookData.progress}%`);
-                this.progressText.textContent = `${bookData.progress}%`;
-                this.progressFill.style.width = `${bookData.progress}%`;
+            // IMPORTANT: Generate locations BEFORE displaying content
+            console.log('Generating EPUB locations...');
+            await this.book.locations.generate(1000);
+            console.log('EPUB locations generated successfully');
+
+            // Set initial progress display from stored value
+            if (storedProgress > 0) {
+                console.log(`Setting initial progress from stored value: ${storedProgress}%`);
+                this.progressText.textContent = `${storedProgress}%`;
+                this.progressFill.style.width = `${storedProgress}%`;
+            } else {
+                // Default to 0% initially
+                this.progressText.textContent = '0%';
+                this.progressFill.style.width = '0%';
             }
 
-            // Load TOC in parallel with initial display
+            // Load TOC in parallel
             const tocPromise = this.book.loaded.navigation.then(navigation => {
                 if (navigation.toc) {
                     this.displayTOC(navigation.toc);
                 }
             });
 
-            // Store current progress before display
-            const storedProgress = bookData.progress || 0;
-            
-            // Add a flag to track initial load
-            let isFirstLocationChange = true;
-
-            // Generate locations in the background after initial display
-            const displayPromise = bookData.currentLocation 
-                ? this.rendition.display(bookData.currentLocation)
-                : this.rendition.display();
-
-            // Wait for initial display before removing loading overlay
-            await displayPromise;
-            
-            // Check if progress was changed during display
-            console.log(`EPUB progress after display: ${this.progressText.textContent}`);
-            
-            // Ensure progress value wasn't reset during display
-            if (storedProgress > 0 && parseInt(this.progressText.textContent) === 0) {
-                console.log(`Restoring progress after display to: ${storedProgress}%`);
-                this.progressText.textContent = `${storedProgress}%`;
-                this.progressFill.style.width = `${storedProgress}%`;
+            // Determine initial location
+            let initialLocation;
+            if (bookData.currentLocation) {
+                console.log('Using stored CFI for initial location:', bookData.currentLocation);
+                initialLocation = bookData.currentLocation;
+            } else if (storedProgress > 0) {
+                // Convert percentage to CFI
+                initialLocation = this.book.locations.cfiFromPercentage(storedProgress / 100);
+                console.log(`Converted stored progress ${storedProgress}% to CFI: ${initialLocation}`);
+            } else {
+                // Start at the beginning
+                console.log('No stored location, starting at the beginning');
+                initialLocation = null;
             }
-            
+
+            // Display the content at the initial location
+            console.log('Displaying EPUB content...');
+            await this.rendition.display(initialLocation);
+            console.log('EPUB content displayed successfully');
+
+            // Wait for everything to initialize
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Get the current location after display
+            const currentLocation = this.rendition.currentLocation();
+            console.log('Current location after display:', currentLocation);
+
+            if (currentLocation && currentLocation.start) {
+                // Calculate and update progress
+                const calculatedProgress = Math.floor((currentLocation.start.percentage || 0) * 100);
+                console.log(`Calculated progress from location: ${calculatedProgress}%`);
+                
+                // Use the higher value between stored and calculated progress
+                const finalProgress = Math.max(storedProgress, calculatedProgress);
+                console.log(`Using final progress value: ${finalProgress}%`);
+                
+                // Update progress display
+                this.progressText.textContent = `${finalProgress}%`;
+                this.progressFill.style.width = `${finalProgress}%`;
+                
+                // Save the progress
+                if (this.currentBookId) {
+                    this.storage.updateProgress(
+                        this.currentBookId,
+                        finalProgress,
+                        currentLocation.start.cfi
+                    ).catch(error => console.error('Error saving initial progress:', error));
+                }
+            }
+
+            // Remove loading overlay
             loadingOverlay.remove();
 
-            // Continue with background tasks
-            Promise.all([
-                tocPromise,
-                this.book.locations.generate(1000) // Reduced number of locations for faster loading
-            ]).catch(console.error);
-
-            // Track progress and current chapter
+            // Set up relocated event handler
             this.rendition.on('relocated', (location) => {
-                // Calculate progress
-                let progress = Math.floor((location.start.percentage || 0) * 100);
-                if (location.start.percentage > 0.995) progress = 100;
+                console.log('Relocated event triggered:', location);
                 
-                // Get current progress value
-                const currentProgress = parseInt(this.progressText.textContent) || 0;
-                
-                // Only update progress if it's higher than the current value
-                // This prevents the progress from being reset to a lower value when opening a book
-                if (progress >= currentProgress) {
-                    console.log(`Updating progress from ${currentProgress}% to ${progress}%`);
-                    this.progressText.textContent = `${progress}%`;
-                    this.progressFill.style.width = `${progress}%`;
-                    
-                    // Update current chapter
-                    this.updateCurrentChapter(location);
-                    
-                    // Save progress
-                    this.storage.updateProgress(
-                        bookData.id,
-                        progress,
-                        location.start.cfi
-                    ).catch(console.error);
-                } else {
-                    console.log(`Not updating progress: current=${currentProgress}%, new=${progress}%`);
+                if (!location || !location.start) {
+                    console.warn('Invalid location data in relocated event');
+                    return;
                 }
+                
+                // Log the percentage for debugging
+                console.log(`Location percentage: ${location.start.percentage}`);
+                
+                // Update current chapter
+                this.updateCurrentChapter(location);
+                
+                // Update progress using the dedicated method
+                const updatedProgress = this.updateEpubProgress(location);
+                console.log(`Progress updated to ${updatedProgress}% after relocated event`);
             });
+
+            // Force a relocated event after a delay to ensure progress is updated
+            setTimeout(() => {
+                const delayedLocation = this.rendition.currentLocation();
+                if (delayedLocation && delayedLocation.start) {
+                    console.log('Forcing relocated event after initial load');
+                    this.rendition.emit('relocated', delayedLocation);
+                }
+            }, 1000);
 
         } catch (error) {
             console.error('Error loading book:', error);
+            loadingOverlay.remove();
             throw error;
         }
     }
@@ -317,6 +363,14 @@ class EpubReader {
             `;
             document.body.appendChild(loadingOverlay);
 
+            // Set format and use PDF-specific font size
+            this.currentFormat = 'pdf';
+            this.currentFontSize = this.pdfFontSize;
+            this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
+
+            // Set the book title
+            this.bookTitle.textContent = bookData.title || 'Untitled PDF';
+
             // Ensure PDF container is visible, EPUB container is hidden
             const epubContainer = document.getElementById('epub-container');
             const pdfContainer = document.getElementById('pdf-container');
@@ -325,11 +379,11 @@ class EpubReader {
             if (!pdfContainer) {
                 // Create PDF container if it doesn't exist
                 this.viewer.innerHTML = `
-                <div id="pdf-container" style="display: flex; flex-direction: column; height: 100%;">
+                <div id="pdf-container">
                     <div id="pdf-pages-container"></div>
                 </div>`;
             } else {
-                pdfContainer.style.display = 'flex';
+                pdfContainer.style.display = 'block';
             }
 
             // Load PDF document with optimized settings
@@ -345,12 +399,22 @@ class EpubReader {
             this.totalPdfPages = this.pdfDoc.numPages;
             console.log(`PDF loaded with ${this.totalPdfPages} pages`);
             
-            // Create PDF viewer container with current theme
-            this.viewer.innerHTML = `
-                <div id="pdf-container" class="${this.currentTheme === 'dark' || this.currentTheme === 'night' ? 'dark-mode' : ''}">
-                    <div id="pdf-pages-container"></div>
-                </div>
-            `;
+            // Only create the PDF container if it doesn't exist
+            if (!document.getElementById('pdf-container')) {
+                this.viewer.innerHTML = `
+                    <div id="pdf-container" class="${this.currentTheme === 'dark' || this.currentTheme === 'night' ? 'dark-mode' : ''}">
+                        <div id="pdf-pages-container"></div>
+                    </div>
+                `;
+            } else {
+                // Just update the theme if needed
+                const pdfContainer = document.getElementById('pdf-container');
+                if (this.currentTheme === 'dark' || this.currentTheme === 'night') {
+                    pdfContainer.classList.add('dark-mode');
+                } else {
+                    pdfContainer.classList.remove('dark-mode');
+                }
+            }
             
             // Mark the viewer as PDF mode for CSS targeting
             this.viewer.classList.add('pdf-mode');
@@ -580,9 +644,9 @@ class EpubReader {
         }
         
         // If this page is already rendered (not a placeholder), return it
+        // We need to re-render when changing font size, so we check for the placeholder class
         if (!pageContainer.classList.contains('placeholder')) {
-            console.log(`Page ${pageNum} is already rendered`);
-            return pageContainer;
+            console.log(`Page ${pageNum} is already rendered, but we'll re-render it for font size change`);
         }
         
         try {
@@ -635,6 +699,111 @@ class EpubReader {
         } catch (error) {
             console.error(`Error rendering page ${pageNum}:`, error);
             return null;
+        }
+    }
+
+    // Add the missing renderAllPdfPages method
+    async renderAllPdfPages() {
+        if (!this.pdfDoc) {
+            console.error('No PDF document loaded');
+            return;
+        }
+        
+        console.log('Re-rendering all PDF pages with new font size');
+        
+        // Store the current page number and scroll position before re-rendering
+        const currentPageNumber = this.currentPdfPage;
+        const currentPageElement = document.getElementById(`pdf-page-container-${currentPageNumber}`);
+        const viewerElement = this.viewer;
+        let scrollRatio = 0;
+        
+        if (currentPageElement && viewerElement) {
+            // Calculate how far down the page we've scrolled (as a ratio)
+            const elementRect = currentPageElement.getBoundingClientRect();
+            const viewerRect = viewerElement.getBoundingClientRect();
+            scrollRatio = (viewerRect.top - elementRect.top) / elementRect.height;
+            console.log(`Current scroll ratio: ${scrollRatio}`);
+        }
+        
+        // Show loading overlay
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'loading-overlay';
+        loadingOverlay.innerHTML = `
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Updating PDF view...</div>
+        `;
+        document.body.appendChild(loadingOverlay);
+        
+        try {
+            // Get all existing page containers
+            const pdfPagesContainer = document.getElementById('pdf-pages-container');
+            if (!pdfPagesContainer) {
+                console.error('PDF pages container not found');
+                loadingOverlay.remove();
+                return;
+            }
+            
+            const pageContainers = pdfPagesContainer.querySelectorAll('.pdf-page-container');
+            
+            // Mark all pages as placeholders again to force re-rendering
+            pageContainers.forEach(container => {
+                container.classList.add('placeholder');
+                const pageNum = parseInt(container.dataset.pageNumber);
+                container.innerHTML = `
+                    <div class="pdf-page-label">Page ${pageNum} of ${this.totalPdfPages}</div>
+                    <div class="pdf-placeholder">Updating page ${pageNum}...</div>
+                `;
+            });
+            
+            // First render visible pages
+            const visiblePages = [];
+            
+            // Always include the current page
+            visiblePages.push(currentPageNumber);
+            
+            // Add a few pages before and after
+            const startPage = Math.max(1, currentPageNumber - 1);
+            const endPage = Math.min(this.totalPdfPages, currentPageNumber + 2);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                if (!visiblePages.includes(i)) {
+                    visiblePages.push(i);
+                }
+            }
+            
+            console.log(`Rendering visible pages: ${visiblePages.join(', ')}`);
+            
+            // Render visible pages first
+            const visiblePromises = visiblePages.map(pageNum => this.renderPdfPage(pageNum));
+            await Promise.all(visiblePromises);
+            
+            // Remove loading overlay
+            loadingOverlay.remove();
+            
+            // Ensure we're still on the same page after font size change
+            this.currentPdfPage = currentPageNumber;
+            
+            // Scroll to current page with the same relative position
+            const updatedPageElement = document.getElementById(`pdf-page-container-${currentPageNumber}`);
+            if (updatedPageElement) {
+                setTimeout(() => {
+                    // Calculate the scroll position based on the saved ratio
+                    const scrollPosition = updatedPageElement.offsetTop + (updatedPageElement.offsetHeight * scrollRatio);
+                    this.viewer.scrollTo({
+                        top: scrollPosition,
+                        behavior: 'auto'
+                    });
+                    
+                    console.log(`Restored scroll position to ratio ${scrollRatio}`);
+                }, 100);
+            }
+            
+            // Then render remaining pages in the background
+            this.loadRemainingPages(1, visiblePages);
+            
+        } catch (error) {
+            console.error('Error re-rendering PDF pages:', error);
+            loadingOverlay.remove();
         }
     }
 
@@ -835,8 +1004,44 @@ class EpubReader {
                 // Set the flag for direct navigation
                 this.isDirectNavigation = true;
                 
+                console.log(`TOC navigation to: ${chapter.label}`);
+                
                 // Navigate to the chapter
-                this.rendition.display(chapter.href);
+                this.rendition.display(chapter.href).then(() => {
+                    // Wait for navigation to complete
+                    setTimeout(() => {
+                        // Get the updated location
+                        const location = this.rendition.currentLocation();
+                        if (location && location.start) {
+                            console.log('Location after TOC navigation:', location);
+                            
+                            // Calculate progress
+                            const progress = Math.floor((location.start.percentage || 0) * 100);
+                            console.log(`Progress after TOC navigation: ${progress}%`);
+                            
+                            // Update progress display
+                            this.progressText.textContent = `${progress}%`;
+                            this.progressFill.style.width = `${progress}%`;
+                            
+                            // Save progress
+                            if (this.currentBookId) {
+                                this.storage.updateProgress(
+                                    this.currentBookId,
+                                    progress,
+                                    location.start.cfi
+                                ).catch(error => console.error('Error saving progress after TOC navigation:', error));
+                            }
+                            
+                            // Force a relocated event to update everything
+                            console.log('Forcing relocated event after TOC navigation');
+                            this.rendition.emit('relocated', location);
+                        } else {
+                            console.warn('No valid location after TOC navigation');
+                        }
+                    }, 200);
+                }).catch(error => {
+                    console.error('Error during TOC navigation:', error);
+                });
                 
                 // Hide the TOC
                 tocContainer.classList.remove('active');
@@ -906,16 +1111,60 @@ class EpubReader {
             }
         });
 
+        // Comprehensive keyboard navigation for both EPUB and PDF
+        document.addEventListener('keydown', (event) => {
+            // Only process if we're not in an input field
+            if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'TEXTAREA') {
+                if (this.pdfDoc) {
+                    // PDF navigation
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Backspace') {
+                        this.prevButton.click();
+                        event.preventDefault();
+                    } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
+                        this.nextButton.click();
+                        event.preventDefault();
+                    } else if (event.key === 'Home') {
+                        this.goToPdfPage(1);
+                        event.preventDefault();
+                    } else if (event.key === 'End') {
+                        this.goToPdfPage(this.totalPdfPages);
+                        event.preventDefault();
+                    }
+                } else if (this.rendition) {
+                    // EPUB navigation
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Backspace') {
+                        this.isDirectNavigation = true;
+                        this.rendition.prev();
+                        event.preventDefault();
+                    } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
+                        this.isDirectNavigation = true;
+                        this.rendition.next();
+                        event.preventDefault();
+                    }
+                }
+            }
+        });
+
         // Font size controls
         this.decreaseFontButton.addEventListener('click', async () => {
             if (this.currentFontSize > 50) {
                 this.currentFontSize -= 10;
                 this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
-                localStorage.setItem('fontSize', this.currentFontSize);
+                
+                // Store font size based on current format
+                if (this.currentFormat === 'epub') {
+                    this.epubFontSize = this.currentFontSize;
+                    localStorage.setItem('epubFontSize', this.currentFontSize);
+                } else if (this.currentFormat === 'pdf') {
+                    this.pdfFontSize = this.currentFontSize;
+                    localStorage.setItem('pdfFontSize', this.currentFontSize);
+                }
                 
                 if (this.rendition) {
                     this.rendition.themes.fontSize(`${this.currentFontSize}%`);
                 } else if (this.pdfDoc) {
+                    // For PDFs, we need to re-render all pages with the new font size
+                    console.log(`Decreasing PDF font size to ${this.currentFontSize}%`);
                     await this.renderAllPdfPages();
                 }
             }
@@ -925,11 +1174,21 @@ class EpubReader {
             if (this.currentFontSize < 200) {
                 this.currentFontSize += 10;
                 this.fontSizeDisplay.textContent = `${this.currentFontSize}%`;
-                localStorage.setItem('fontSize', this.currentFontSize);
+                
+                // Store font size based on current format
+                if (this.currentFormat === 'epub') {
+                    this.epubFontSize = this.currentFontSize;
+                    localStorage.setItem('epubFontSize', this.currentFontSize);
+                } else if (this.currentFormat === 'pdf') {
+                    this.pdfFontSize = this.currentFontSize;
+                    localStorage.setItem('pdfFontSize', this.currentFontSize);
+                }
                 
                 if (this.rendition) {
                     this.rendition.themes.fontSize(`${this.currentFontSize}%`);
                 } else if (this.pdfDoc) {
+                    // For PDFs, we need to re-render all pages with the new font size
+                    console.log(`Increasing PDF font size to ${this.currentFontSize}%`);
                     await this.renderAllPdfPages();
                 }
             }
@@ -1029,30 +1288,7 @@ class EpubReader {
             });
         }
 
-        // Keyboard navigation
-        document.addEventListener('keyup', async (event) => {
-            if (this.pdfDoc) {
-                if (event.key === 'ArrowLeft' && this.currentPdfPage > 1) {
-                    this.currentPdfPage--;
-                    await this.renderPdfPage(this.currentPdfPage);
-                    this.updatePdfProgress();
-                    // Scroll to the current page
-                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
-                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
-                }
-                if (event.key === 'ArrowRight' && this.currentPdfPage < this.totalPdfPages) {
-                    this.currentPdfPage++;
-                    await this.renderPdfPage(this.currentPdfPage);
-                    this.updatePdfProgress();
-                    // Scroll to the current page
-                    const pageElement = document.getElementById(`pdf-page-container-${this.currentPdfPage}`);
-                    if (pageElement) pageElement.scrollIntoView({ behavior: 'smooth' });
-                }
-            } else if (this.rendition) {
-                if (event.key === 'ArrowLeft') this.rendition.prev();
-                if (event.key === 'ArrowRight') this.rendition.next();
-            }
-        });
+        // Note: Keyboard navigation is now handled in the bindEvents method
     }
 
     updatePdfScale() {
@@ -1157,10 +1393,19 @@ class EpubReader {
                 if (!isNaN(pageNum) && pageNum > 0) {
                     console.log(`Observed page ${pageNum} with ${(highestVisibility*100).toFixed(1)}% visibility`);
                     
-                    // Update only if the page changed
+                    // Check if this is a direct page change (via button/keyboard)
+                    const isDirectNavigation = this.lastDirectPageChange && 
+                                             (Date.now() - this.lastDirectPageChange < 1000);
+                    
+                    // Update the current page
                     if (this.currentPdfPage !== pageNum) {
                         console.log(`Changing current page from ${this.currentPdfPage} to ${pageNum}`);
                         this.currentPdfPage = pageNum;
+                        this.updatePdfProgress();
+                    } 
+                    // Even if the page hasn't changed, update progress when scrolling naturally
+                    else if (!isDirectNavigation && highestVisibility > 0.5) {
+                        console.log(`Updating progress for current page ${pageNum}`);
                         this.updatePdfProgress();
                     }
                 }
@@ -1171,6 +1416,7 @@ class EpubReader {
         const pages = document.querySelectorAll('.pdf-page-container');
         pages.forEach(page => {
             this.pageObserver.observe(page);
+            page.dataset.observed = 'true';
         });
         
         console.log(`Set up observer for ${pages.length} PDF pages`);
@@ -1414,20 +1660,8 @@ class EpubReader {
     }
     
     setupPdfKeyboardNavigation() {
-        // Add keyboard navigation for PDF
-        document.addEventListener('keydown', (event) => {
-            if (this.isReaderOpen && this.currentFormat === 'pdf') {
-                if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-                    this.prevPdfPage();
-                } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-                    this.nextPdfPage();
-                } else if (event.key === 'Home') {
-                    this.goToPdfPage(1);
-                } else if (event.key === 'End') {
-                    this.goToPdfPage(this.totalPdfPages);
-                }
-            }
-        });
+        // This method is now empty as we've implemented a comprehensive keyboard navigation
+        // in the bindEvents method
     }
 
     // Navigation methods for PDF
@@ -1454,6 +1688,9 @@ class EpubReader {
         // Mark this as a direct navigation and update current page
         this.lastDirectPageChange = Date.now();
         this.currentPdfPage = pageNum;
+        
+        // Always update progress when navigating to a page
+        this.updatePdfProgress();
         
         // First, check if the target page container exists
         let pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
@@ -1513,8 +1750,7 @@ class EpubReader {
                 const updatedContainer = document.getElementById(`pdf-page-container-${pageNum}`);
                 if (updatedContainer) {
                     updatedContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    // Force update progress and TOC highlight
-                    this.updatePdfProgress();
+                    // Update TOC highlight
                     this.updateTOCHighlight();
                     
                     // Also render pages before and after for better experience
@@ -1600,6 +1836,51 @@ class EpubReader {
         } catch (error) {
             console.error('Error marking book as completed:', error);
         }
+    }
+
+    // Add a method to manually update EPUB progress
+    updateEpubProgress(location) {
+        let progress = 0;
+        
+        if (!this.book || !location || !location.start) {
+            console.warn('Cannot update EPUB progress: missing book or location');
+            
+            // Fallback: If we have a stored progress for this book, use it
+            if (this.currentBookId) {
+                this.storage.get(this.currentBookId).then(bookData => {
+                    if (bookData && bookData.progress) {
+                        progress = bookData.progress;
+                        console.log(`Fallback: Using stored progress value: ${progress}%`);
+                        this.progressText.textContent = `${progress}%`;
+                        this.progressFill.style.width = `${progress}%`;
+                    }
+                }).catch(error => {
+                    console.error('Error getting book data for fallback progress:', error);
+                });
+            }
+            return progress;
+        }
+        
+        // Calculate progress
+        progress = Math.floor((location.start.percentage || 0) * 100);
+        if (location.start.percentage > 0.995) progress = 100;
+        
+        console.log(`Manual EPUB progress update: ${progress}%`);
+        
+        // Update progress display
+        this.progressText.textContent = `${progress}%`;
+        this.progressFill.style.width = `${progress}%`;
+        
+        // Save progress if we have a book ID
+        if (this.currentBookId) {
+            this.storage.updateProgress(
+                this.currentBookId,
+                progress,
+                location.start.cfi
+            ).catch(error => console.error('Error saving progress:', error));
+        }
+        
+        return progress;
     }
 }
 
