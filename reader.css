@@ -159,52 +159,74 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* Navigation controls */
+/* Navigation controls with auto-hide functionality */
 .navigation-controls {
     position: fixed;
-    top: 50%;
+    top: 0;
     left: 0;
     right: 0;
-    transform: translateY(-50%);
+    bottom: 0;
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    padding: 0 1rem;
     pointer-events: none;
-    z-index: 50;
-    padding: 0 20px;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+}
+
+.navigation-controls.visible {
+    opacity: 1;
 }
 
 .nav-button {
-    background: var(--reader-bg-translucent);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: none;
+    width: 45px;
+    height: 45px;
     border-radius: 50%;
-    width: 50px;
-    height: 50px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    opacity: 0.85;
-    transition: var(--reader-transition);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
     pointer-events: auto;
-    box-shadow: var(--reader-shadow);
-    color: var(--text-color);
+    /* Ensure buttons are visible against any background */
+    background-color: rgba(255, 255, 255, 0.8);
+    font-size: 1.2rem;
+}
+
+/* Dark theme button styling */
+[data-theme="dark"] .nav-button,
+[data-theme="night"] .nav-button {
+    background-color: rgba(50, 50, 50, 0.8);
+    color: #fff;
 }
 
 .nav-button:hover {
-    opacity: 1;
-    transform: scale(1.05);
-    background: var(--reader-primary);
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    background-color: var(--primary-color);
     color: white;
 }
 
 .nav-button.left {
+    margin-right: auto;
     margin-left: 15px;
 }
 
 .nav-button.right {
+    margin-left: auto;
     margin-right: 15px;
+}
+
+/* Ensure navigation controls are visible in PDF mode */
+.pdf-mode .navigation-controls,
+.pdf-mode .navigation-controls.visible {
+    display: flex;
 }
 
 /* Settings panel */
@@ -728,4 +750,92 @@
 .viewer.double-page-mode {
     display: flex;
     justify-content: center;
+}
+
+/* PDF Theme Styles */
+#pdf-container.theme-light {
+    background: var(--bg-color);
+}
+#pdf-container.theme-light .pdf-page-container {
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+#pdf-container.theme-light .pdf-page-label {
+    background-color: rgba(255, 255, 255, 0.8);
+    color: #666;
+}
+
+#pdf-container.theme-sepia {
+    background: #f4ecd8;
+}
+#pdf-container.theme-sepia .pdf-page-container {
+    background: #f4ecd8;
+    box-shadow: 0 2px 8px rgba(92, 75, 55, 0.2);
+}
+#pdf-container.theme-sepia .pdf-page-label {
+    background-color: rgba(244, 236, 216, 0.8);
+    color: #5c4b37;
+}
+#pdf-container.theme-sepia canvas {
+    filter: sepia(30%);
+}
+
+#pdf-container.theme-cream {
+    background: #fff9f0;
+}
+#pdf-container.theme-cream .pdf-page-container {
+    background: #fff9f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+#pdf-container.theme-cream .pdf-page-label {
+    background-color: rgba(255, 249, 240, 0.8);
+    color: #4a4a4a;
+}
+#pdf-container.theme-cream canvas {
+    filter: sepia(10%);
+}
+
+#pdf-container.theme-night {
+    background: #1a1a2e;
+}
+#pdf-container.theme-night .pdf-page-container {
+    background: #1a1a2e;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4);
+}
+#pdf-container.theme-night .pdf-page-label {
+    background-color: rgba(26, 26, 46, 0.8);
+    color: #e1e1e1;
+}
+#pdf-container.theme-night canvas {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.1);
+}
+
+#pdf-container.theme-dark {
+    background: #1a1a1a;
+}
+#pdf-container.theme-dark .pdf-page-container {
+    background: #1a1a1a;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4);
+}
+#pdf-container.theme-dark .pdf-page-label {
+    background-color: rgba(26, 26, 26, 0.8);
+    color: #ffffff;
+}
+#pdf-container.theme-dark canvas {
+    filter: invert(1) hue-rotate(180deg);
+}
+
+#pdf-container.theme-sage {
+    background: #f0f4f0;
+}
+#pdf-container.theme-sage .pdf-page-container {
+    background: #f0f4f0;
+    box-shadow: 0 2px 8px rgba(44, 58, 44, 0.15);
+}
+#pdf-container.theme-sage .pdf-page-label {
+    background-color: rgba(240, 244, 240, 0.8);
+    color: #2c3a2c;
+}
+#pdf-container.theme-sage canvas {
+    filter: hue-rotate(45deg) saturate(0.8);
 } 

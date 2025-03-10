@@ -17,6 +17,11 @@ class EpubReader {
         this.currentBookId = null;
         this.currentFormat = null;
         
+        // Navigation arrows auto-hide
+        this.navArrowsTimeout = null;
+        this.navArrowsVisible = true;
+        this.navArrowsHideDelay = 3000; // Hide after 3 seconds of inactivity
+        
         // DOM elements
         this.viewer = document.getElementById('viewer');
         this.bookTitle = document.getElementById('book-title');
@@ -33,10 +38,11 @@ class EpubReader {
         this.tocToggle = document.getElementById('toc-toggle');
         this.settingsToggle = document.getElementById('settings-toggle');
         this.viewModeButtons = document.querySelectorAll('.mode-button');
+        this.navigationControls = document.querySelector('.navigation-controls');
 
         // Update theme initialization
         this.currentTheme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', this.currentTheme);
+        this.applyTheme(this.currentTheme);
         
         // Font size display will be updated when a book is loaded
         this.applyViewMode(this.currentViewMode);
@@ -92,6 +98,16 @@ class EpubReader {
 
             await this.loadBook(bookData);
             this.bindEvents();
+            
+            // Set up navigation arrows auto-hide
+            this.setupNavArrowsAutoHide();
+            
+            // Ensure navigation arrows are initially visible
+            if (this.navigationControls) {
+                this.showNavArrows();
+            }
+            
+            console.log('Reader initialized');
         } catch (error) {
             console.error('Detailed error in reader initialization:', error);
             console.error('Stack trace:', error.stack);
@@ -100,29 +116,31 @@ class EpubReader {
     }
 
     async loadBook(bookData) {
-        this.currentBookId = bookData.id;
-        
-        // Add detailed logging about the book data
-        console.log('Loading book:', {
-            id: bookData.id,
-            title: bookData.title,
-            format: bookData.format,
-            fileType: bookData.fileType,
-            hasData: !!bookData.data,
-            dataType: bookData.data ? typeof bookData.data : 'none'
-        });
-        
-        // Check both format and fileType properties to determine if the book is a PDF
-        if (bookData.format === 'pdf' || bookData.fileType === 'pdf') {
-            console.log('Detected PDF book');
-            // Set the currentFormat property for consistency
-            this.currentFormat = 'pdf';
-            await this.loadPdf(bookData);
-        } else {
-            console.log('Detected EPUB book');
-            // Set the currentFormat property for consistency
-            this.currentFormat = 'epub';
-            await this.loadEpub(bookData);
+        try {
+            console.log('Loading book:', bookData);
+            
+            // Apply the current theme before loading the book
+            this.applyTheme(this.currentTheme);
+            
+            // Determine book type and load accordingly
+            if (bookData.format === 'epub') {
+                await this.loadEpub(bookData);
+            } else if (bookData.format === 'pdf') {
+                await this.loadPdf(bookData);
+            } else {
+                throw new Error('Unsupported book format');
+            }
+            
+            // Ensure theme is applied after loading
+            this.applyTheme(this.currentTheme);
+            
+            // Show navigation arrows when a book is loaded
+            this.showNavArrows();
+            
+            return true;
+        } catch (error) {
+            console.error('Error loading book:', error);
+            throw error;
         }
     }
 
@@ -150,6 +168,17 @@ class EpubReader {
             // Get stored progress
             const storedProgress = bookData.progress || 0;
             
+            // Set initial progress display from stored value
+            if (storedProgress > 0) {
+                console.log(`Setting initial progress from stored value: ${storedProgress}%`);
+                this.progressText.textContent = `${storedProgress}%`;
+                this.progressFill.style.width = `${storedProgress}%`;
+            } else {
+                // Default to 0% initially
+                this.progressText.textContent = '0%';
+                this.progressFill.style.width = '0%';
+            }
+            
             // Ensure EPUB container is visible, PDF container is hidden
             const pdfContainer = document.getElementById('pdf-container');
             let epubContainer = document.getElementById('epub-container');
@@ -162,6 +191,9 @@ class EpubReader {
             } else {
                 epubContainer.style.display = 'block';
             }
+            
+            // Remove PDF mode class if present
+            this.viewer.classList.remove('pdf-mode');
 
             this.bookTitle.textContent = bookData.title;
             
@@ -171,8 +203,13 @@ class EpubReader {
                 replacements: 'blobUrl',
                 openAs: 'epub'
             });
+            
+            // Open the book and wait for it to be ready
             await this.book.open(bookData.data);
-
+            
+            // Wait for the book's spine to be ready
+            await this.book.loaded.spine;
+            
             // Create rendition with optimized settings
             this.rendition = this.book.renderTo(this.viewer, {
                 width: '100%',
@@ -185,146 +222,75 @@ class EpubReader {
 
             // Set up themes for EPUB content
             this.rendition.themes.register('light', {
-                body: { 
-                    color: '#333333', 
-                    background: '#ffffff' 
-                }
+                body: { color: '#333333', background: '#ffffff' }
             });
-            
             this.rendition.themes.register('sepia', {
-                body: { 
-                    color: '#5c4b37',
-                    background: '#f4ecd8'
-                }
+                body: { color: '#5c4b37', background: '#f4ecd8' }
             });
-
             this.rendition.themes.register('cream', {
-                body: { 
-                    color: '#4a4a4a',
-                    background: '#fff9f0'
-                }
+                body: { color: '#4a4a4a', background: '#fff9f0' }
             });
-
             this.rendition.themes.register('night', {
-                body: { 
-                    color: '#e1e1e1',
-                    background: '#1a1a2e'
-                },
-                a: {
-                    color: '#80ccff',  // Light blue color for links in night mode
-                    'text-decoration': 'underline'
-                }
+                body: { color: '#e1e1e1', background: '#1a1a2e' },
+                a: { color: '#80ccff', 'text-decoration': 'underline' }
             });
-
             this.rendition.themes.register('dark', {
-                body: { 
-                    color: '#ffffff',
-                    background: '#1a1a1a'
-                },
-                a: {
-                    color: '#80ccff',  // Light blue color for links in dark mode
-                    'text-decoration': 'underline'
-                }
+                body: { color: '#ffffff', background: '#1a1a1a' },
+                a: { color: '#80ccff', 'text-decoration': 'underline' }
             });
-
             this.rendition.themes.register('sage', {
-                body: { 
-                    color: '#2c3a2c',
-                    background: '#f0f4f0'
-                }
+                body: { color: '#2c3a2c', background: '#f0f4f0' }
             });
 
             // Apply initial theme
             this.rendition.themes.select(this.currentTheme);
             this.rendition.themes.fontSize(`${this.currentFontSize}%`);
 
-            // IMPORTANT: Generate locations BEFORE displaying content
-            console.log('Generating EPUB locations...');
-            await this.book.locations.generate(1000);
-            console.log('EPUB locations generated successfully');
-
-            // Set initial progress display from stored value
-            if (storedProgress > 0) {
-                console.log(`Setting initial progress from stored value: ${storedProgress}%`);
-                this.progressText.textContent = `${storedProgress}%`;
-                this.progressFill.style.width = `${storedProgress}%`;
-            } else {
-                // Default to 0% initially
-                this.progressText.textContent = '0%';
-                this.progressFill.style.width = '0%';
-            }
-
-            // Load TOC in parallel
-            const tocPromise = this.book.loaded.navigation.then(navigation => {
-                if (navigation.toc) {
-                    this.displayTOC(navigation.toc);
-                }
-            });
-
             // Determine initial location
             let initialLocation;
             if (bookData.currentLocation) {
                 console.log('Using stored CFI for initial location:', bookData.currentLocation);
                 initialLocation = bookData.currentLocation;
-            } else if (storedProgress > 0) {
-                // Convert percentage to CFI
-                initialLocation = this.book.locations.cfiFromPercentage(storedProgress / 100);
-                console.log(`Converted stored progress ${storedProgress}% to CFI: ${initialLocation}`);
             } else {
-                // Start at the beginning
-                console.log('No stored location, starting at the beginning');
+                // Start at the beginning for now
+                console.log('Starting at the beginning');
                 initialLocation = null;
             }
 
-            // Display the content at the initial location
-            console.log('Displaying EPUB content...');
-            await this.rendition.display(initialLocation);
-            console.log('EPUB content displayed successfully');
-
-            // Wait for everything to initialize
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Get the current location after display
-            const currentLocation = this.rendition.currentLocation();
-            console.log('Current location after display:', currentLocation);
-
-            if (currentLocation && currentLocation.start) {
-                // Calculate and update progress
-                const calculatedProgress = Math.floor((currentLocation.start.percentage || 0) * 100);
-                console.log(`Calculated progress from location: ${calculatedProgress}%`);
+            try {
+                // Display the content
+                console.log('Displaying EPUB content...');
+                await this.rendition.display(initialLocation);
+                console.log('EPUB content displayed successfully');
                 
-                // Use the higher value between stored and calculated progress
-                const finalProgress = Math.max(storedProgress, calculatedProgress);
-                console.log(`Using final progress value: ${finalProgress}%`);
-                
-                // Update progress display
-                this.progressText.textContent = `${finalProgress}%`;
-                this.progressFill.style.width = `${finalProgress}%`;
-                
-                // Save the progress
-                if (this.currentBookId) {
-                    this.storage.updateProgress(
-                        this.currentBookId,
-                        finalProgress,
-                        currentLocation.start.cfi
-                    ).catch(error => console.error('Error saving initial progress:', error));
+                // Remove loading overlay as soon as content is displayed
+                loadingOverlay.remove();
+            } catch (displayError) {
+                console.error('Error displaying EPUB content:', displayError);
+                // Try to display the first section as a fallback
+                try {
+                    console.log('Trying to display first section as fallback...');
+                    const firstSection = this.book.spine.get(0);
+                    if (firstSection) {
+                        await this.rendition.display(firstSection.href);
+                        console.log('Successfully displayed first section');
+                        loadingOverlay.remove();
+                    } else {
+                        throw new Error('No valid sections found in the book');
+                    }
+                } catch (fallbackError) {
+                    console.error('Fallback display also failed:', fallbackError);
+                    loadingOverlay.remove();
+                    throw fallbackError;
                 }
             }
 
-            // Remove loading overlay
-            loadingOverlay.remove();
-
             // Set up relocated event handler
             this.rendition.on('relocated', (location) => {
-                console.log('Relocated event triggered:', location);
-                
                 if (!location || !location.start) {
                     console.warn('Invalid location data in relocated event');
                     return;
                 }
-                
-                // Log the percentage for debugging
-                console.log(`Location percentage: ${location.start.percentage}`);
                 
                 // Update current chapter
                 this.updateCurrentChapter(location);
@@ -334,18 +300,44 @@ class EpubReader {
                 console.log(`Progress updated to ${updatedProgress}% after relocated event`);
             });
 
-            // Force a relocated event after a delay to ensure progress is updated
-            setTimeout(() => {
-                const delayedLocation = this.rendition.currentLocation();
-                if (delayedLocation && delayedLocation.start) {
-                    console.log('Forcing relocated event after initial load');
-                    this.rendition.emit('relocated', delayedLocation);
+            // Load TOC in parallel
+            this.book.loaded.navigation.then(navigation => {
+                if (navigation.toc) {
+                    this.displayTOC(navigation.toc);
                 }
-            }, 1000);
+            }).catch(error => console.error('Error loading TOC:', error));
+
+            // Generate locations in the background after content is displayed
+            setTimeout(() => {
+                console.log('Starting background generation of EPUB locations...');
+                this.book.locations.generate(1000)
+                    .then(() => {
+                        console.log('EPUB locations generated successfully');
+                        
+                        // If we had stored progress but no CFI, now we can navigate to the correct location
+                        if (!bookData.currentLocation && storedProgress > 0) {
+                            try {
+                                const locationCfi = this.book.locations.cfiFromPercentage(storedProgress / 100);
+                                console.log(`Now navigating to stored progress location: ${locationCfi}`);
+                                this.rendition.display(locationCfi);
+                            } catch (navError) {
+                                console.error('Error navigating to stored progress location:', navError);
+                            }
+                        }
+                        
+                        // Force a progress update with the current location
+                        const currentLocation = this.rendition.currentLocation();
+                        if (currentLocation && currentLocation.start) {
+                            this.updateEpubProgress(currentLocation);
+                        }
+                    })
+                    .catch(error => console.error('Error generating locations:', error));
+            }, 1000); // Start generating locations after 1 second
 
         } catch (error) {
             console.error('Error loading book:', error);
-            loadingOverlay.remove();
+            const loadingOverlay = document.querySelector('.loading-overlay');
+            if (loadingOverlay) loadingOverlay.remove();
             throw error;
         }
     }
@@ -379,12 +371,17 @@ class EpubReader {
             if (!pdfContainer) {
                 // Create PDF container if it doesn't exist
                 this.viewer.innerHTML = `
-                <div id="pdf-container">
+                <div id="pdf-container" class="theme-${this.currentTheme} ${this.currentTheme === 'dark' || this.currentTheme === 'night' ? 'dark-mode' : ''}">
                     <div id="pdf-pages-container"></div>
                 </div>`;
             } else {
                 pdfContainer.style.display = 'block';
+                // Apply current theme
+                pdfContainer.className = `theme-${this.currentTheme} ${this.currentTheme === 'dark' || this.currentTheme === 'night' ? 'dark-mode' : ''}`;
             }
+
+            // Add PDF mode class to viewer
+            this.viewer.classList.add('pdf-mode');
 
             // Load PDF document with optimized settings
             const loadingTask = pdfjsLib.getDocument({
@@ -399,26 +396,6 @@ class EpubReader {
             this.totalPdfPages = this.pdfDoc.numPages;
             console.log(`PDF loaded with ${this.totalPdfPages} pages`);
             
-            // Only create the PDF container if it doesn't exist
-            if (!document.getElementById('pdf-container')) {
-                this.viewer.innerHTML = `
-                    <div id="pdf-container" class="${this.currentTheme === 'dark' || this.currentTheme === 'night' ? 'dark-mode' : ''}">
-                        <div id="pdf-pages-container"></div>
-                    </div>
-                `;
-            } else {
-                // Just update the theme if needed
-                const pdfContainer = document.getElementById('pdf-container');
-                if (this.currentTheme === 'dark' || this.currentTheme === 'night') {
-                    pdfContainer.classList.add('dark-mode');
-                } else {
-                    pdfContainer.classList.remove('dark-mode');
-                }
-            }
-            
-            // Mark the viewer as PDF mode for CSS targeting
-            this.viewer.classList.add('pdf-mode');
-
             // Initialize containers and settings
             if (!document.getElementById('toc-container')) {
                 this.createTOCContainer();
@@ -577,51 +554,45 @@ class EpubReader {
     // Add this method to render individual PDF pages
     async renderPdfPage(pageNum) {
         // Validate page number
-        if (!this.pdfDoc || pageNum < 1 || pageNum > this.totalPdfPages) {
-            console.error(`Invalid page number: ${pageNum}. Total pages: ${this.totalPdfPages}`);
-            return null;
+        if (pageNum < 1 || pageNum > this.totalPdfPages) {
+            console.error(`Invalid page number: ${pageNum}`);
+            return;
         }
         
-        console.log(`Rendering PDF page ${pageNum}`);
-        
-        // Get the PDF page container or create one if needed
         const pdfPagesContainer = document.getElementById('pdf-pages-container');
         if (!pdfPagesContainer) {
             console.error('PDF pages container not found');
-            return null;
+            return;
         }
         
+        // Check if this page is already in the container
         let pageContainer = document.getElementById(`pdf-page-container-${pageNum}`);
         
-        // If the container doesn't exist, create it
         if (!pageContainer) {
-            console.log(`Creating new container for page ${pageNum}`);
-            
+            // Create a new container for this page
             pageContainer = document.createElement('div');
             pageContainer.id = `pdf-page-container-${pageNum}`;
             pageContainer.className = 'pdf-page-container placeholder';
-            pageContainer.dataset.pageNumber = pageNum;
             
+            // Add page label
             const pageLabel = document.createElement('div');
             pageLabel.className = 'pdf-page-label';
             pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
+            pageContainer.appendChild(pageLabel);
             
+            // Add placeholder content
             const placeholder = document.createElement('div');
             placeholder.className = 'pdf-placeholder';
-            placeholder.textContent = `Loading page ${pageNum}...`;
-            
-            pageContainer.appendChild(pageLabel);
+            placeholder.textContent = 'Loading page...';
             pageContainer.appendChild(placeholder);
             
-            // Find the correct position to insert the new page container
+            // Insert at the correct position
             let inserted = false;
             const existingPages = pdfPagesContainer.querySelectorAll('.pdf-page-container');
-            
             for (let i = 0; i < existingPages.length; i++) {
-                const existingPage = existingPages[i];
-                const existingPageNum = parseInt(existingPage.dataset.pageNumber);
+                const existingPageNum = parseInt(existingPages[i].id.replace('pdf-page-container-', ''));
                 if (existingPageNum > pageNum) {
-                    pdfPagesContainer.insertBefore(pageContainer, existingPage);
+                    pdfPagesContainer.insertBefore(pageContainer, existingPages[i]);
                     inserted = true;
                     break;
                 }
@@ -630,6 +601,56 @@ class EpubReader {
             if (!inserted) {
                 pdfPagesContainer.appendChild(pageContainer);
             }
+        }
+        
+        // If this page is already rendered (not a placeholder), return it
+        // We need to re-render when changing font size, so we check for the placeholder class
+        if (!pageContainer.classList.contains('placeholder')) {
+            console.log(`Page ${pageNum} is already rendered, but we'll re-render it for font size change`);
+        }
+        
+        try {
+            // Get the page
+            const page = await this.pdfDoc.getPage(pageNum);
+            
+            // Calculate scale based on font size
+            const scale = this.currentFontSize / 100;
+            
+            // Get viewport
+            const viewport = page.getViewport({ scale });
+            
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            // Remove placeholder content
+            pageContainer.innerHTML = '';
+            
+            // Add page label
+            const pageLabel = document.createElement('div');
+            pageLabel.className = 'pdf-page-label';
+            pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
+            pageContainer.appendChild(pageLabel);
+            
+            // Add canvas to container
+            pageContainer.appendChild(canvas);
+            pageContainer.classList.remove('placeholder');
+            
+            // Apply current theme to the page container
+            if (this.currentTheme) {
+                // Make sure the page container inherits the theme styling
+                pageContainer.setAttribute('data-theme', this.currentTheme);
+            }
+            
+            // Render the page
+            const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+            };
+            
+            await page.render(renderContext).promise;
             
             // Add click handler to page for quick navigation
             pageContainer.addEventListener('click', (e) => {
@@ -641,101 +662,43 @@ class EpubReader {
                     pageContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
-        }
-        
-        // If this page is already rendered (not a placeholder), return it
-        // We need to re-render when changing font size, so we check for the placeholder class
-        if (!pageContainer.classList.contains('placeholder')) {
-            console.log(`Page ${pageNum} is already rendered, but we'll re-render it for font size change`);
-        }
-        
-        try {
-            // Get the page from PDF.js
-            const page = await this.pdfDoc.getPage(pageNum);
-            
-            // Clear the placeholder content
-            pageContainer.innerHTML = '';
-            
-            // Create a label for the page
-            const pageLabel = document.createElement('div');
-            pageLabel.className = 'pdf-page-label';
-            pageLabel.textContent = `Page ${pageNum} of ${this.totalPdfPages}`;
-            pageContainer.appendChild(pageLabel);
-            
-            // Create a canvas for the PDF page
-            const canvas = document.createElement('canvas');
-            canvas.id = `pdf-page-${pageNum}`;
-            pageContainer.appendChild(canvas);
-            
-            // Calculate scale based on container width and current font size
-            const containerWidth = this.viewer.clientWidth;
-            const viewport = page.getViewport({ scale: 1 });
-            
-            // Calculate scale based on container width and current font size
-            const baseScale = (containerWidth * 0.8) / viewport.width;
-            const finalScale = baseScale * (this.currentFontSize / 100);
-            const scaledViewport = page.getViewport({ scale: finalScale });
-    
-            canvas.width = scaledViewport.width;
-            canvas.height = scaledViewport.height;
-    
-            // Render the PDF page to the canvas
-            await page.render({
-                canvasContext: canvas.getContext('2d'),
-                viewport: scaledViewport
-            }).promise;
-            
-            // Remove the placeholder class
-            pageContainer.classList.remove('placeholder');
-            
-            // Make sure this page is observed for visibility
-            if (this.pageObserver && !pageContainer.dataset.observed) {
-                this.pageObserver.observe(pageContainer);
-                pageContainer.dataset.observed = 'true';
-                console.log(`Added observer for page ${pageNum}`);
-            }
-            
-            return pageContainer;
         } catch (error) {
             console.error(`Error rendering page ${pageNum}:`, error);
-            return null;
+            pageContainer.innerHTML = `<div class="error-message">Error loading page ${pageNum}</div>`;
         }
+        
+        return pageContainer;
     }
 
     // Add the missing renderAllPdfPages method
     async renderAllPdfPages() {
-        if (!this.pdfDoc) {
-            console.error('No PDF document loaded');
-            return;
-        }
-        
-        console.log('Re-rendering all PDF pages with new font size');
-        
-        // Store the current page number and scroll position before re-rendering
-        const currentPageNumber = this.currentPdfPage;
-        const currentPageElement = document.getElementById(`pdf-page-container-${currentPageNumber}`);
-        const viewerElement = this.viewer;
-        let scrollRatio = 0;
-        
-        if (currentPageElement && viewerElement) {
-            // Calculate how far down the page we've scrolled (as a ratio)
-            const elementRect = currentPageElement.getBoundingClientRect();
-            const viewerRect = viewerElement.getBoundingClientRect();
-            scrollRatio = (viewerRect.top - elementRect.top) / elementRect.height;
-            console.log(`Current scroll ratio: ${scrollRatio}`);
-        }
-        
-        // Show loading overlay
-        const loadingOverlay = document.createElement('div');
-        loadingOverlay.className = 'loading-overlay';
-        loadingOverlay.innerHTML = `
-            <div class="loading-spinner"></div>
-            <div class="loading-text">Updating PDF view...</div>
-        `;
-        document.body.appendChild(loadingOverlay);
-        
         try {
-            // Get all existing page containers
+            console.log('Re-rendering all PDF pages with new font size');
+            
+            // Show loading overlay
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'loading-overlay';
+            loadingOverlay.innerHTML = `
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Updating PDF display...</div>
+            `;
+            document.body.appendChild(loadingOverlay);
+            
+            // Save current page and scroll position
+            const currentPageNumber = this.currentPdfPage;
+            const currentPageElement = document.getElementById(`pdf-page-container-${currentPageNumber}`);
+            let scrollRatio = 0;
+            
+            if (currentPageElement) {
+                const rect = currentPageElement.getBoundingClientRect();
+                const elementTop = rect.top;
+                const viewerTop = this.viewer.getBoundingClientRect().top;
+                const relativeTop = elementTop - viewerTop;
+                scrollRatio = relativeTop / currentPageElement.offsetHeight;
+                console.log(`Saved scroll position ratio: ${scrollRatio}`);
+            }
+            
+            // Get the container
             const pdfPagesContainer = document.getElementById('pdf-pages-container');
             if (!pdfPagesContainer) {
                 console.error('PDF pages container not found');
@@ -743,35 +706,42 @@ class EpubReader {
                 return;
             }
             
-            const pageContainers = pdfPagesContainer.querySelectorAll('.pdf-page-container');
+            // Clear the container
+            pdfPagesContainer.innerHTML = '';
             
-            // Mark all pages as placeholders again to force re-rendering
-            pageContainers.forEach(container => {
-                container.classList.add('placeholder');
-                const pageNum = parseInt(container.dataset.pageNumber);
-                container.innerHTML = `
-                    <div class="pdf-page-label">Page ${pageNum} of ${this.totalPdfPages}</div>
-                    <div class="pdf-placeholder">Updating page ${pageNum}...</div>
-                `;
-            });
-            
-            // First render visible pages
-            const visiblePages = [];
-            
-            // Always include the current page
-            visiblePages.push(currentPageNumber);
-            
-            // Add a few pages before and after
-            const startPage = Math.max(1, currentPageNumber - 1);
-            const endPage = Math.min(this.totalPdfPages, currentPageNumber + 2);
-            
-            for (let i = startPage; i <= endPage; i++) {
-                if (!visiblePages.includes(i)) {
-                    visiblePages.push(i);
+            // Apply the current theme to the PDF container
+            const pdfContainer = document.getElementById('pdf-container');
+            if (pdfContainer) {
+                // Remove all theme classes first
+                pdfContainer.classList.remove('theme-light', 'theme-sepia', 'theme-cream', 'theme-night', 'theme-dark', 'theme-sage');
+                
+                // Add the appropriate theme class
+                pdfContainer.classList.add(`theme-${this.currentTheme}`);
+                
+                // For dark themes, add the dark-mode class
+                if (this.currentTheme === 'dark' || this.currentTheme === 'night') {
+                    pdfContainer.classList.add('dark-mode');
+                } else {
+                    pdfContainer.classList.remove('dark-mode');
                 }
             }
             
-            console.log(`Rendering visible pages: ${visiblePages.join(', ')}`);
+            // Determine which pages are currently visible
+            const visiblePages = [];
+            const viewerRect = this.viewer.getBoundingClientRect();
+            const viewerTop = viewerRect.top;
+            const viewerBottom = viewerRect.bottom;
+            const viewerHeight = viewerRect.height;
+            
+            // Add the current page and a few pages before and after
+            const pagesToRender = new Set();
+            pagesToRender.add(currentPageNumber);
+            
+            // Add 2 pages before and after the current page
+            for (let i = Math.max(1, currentPageNumber - 2); i <= Math.min(this.totalPdfPages, currentPageNumber + 2); i++) {
+                pagesToRender.add(i);
+                visiblePages.push(i);
+            }
             
             // Render visible pages first
             const visiblePromises = visiblePages.map(pageNum => this.renderPdfPage(pageNum));
@@ -1231,19 +1201,8 @@ class EpubReader {
             }
             
             option.addEventListener('click', () => {
-                // Update active class
-                document.querySelectorAll('.theme-option').forEach(el => 
-                    el.classList.remove('active'));
-                option.classList.add('active');
-                
-                // Apply theme
-                this.currentTheme = theme;
-                document.documentElement.setAttribute('data-theme', theme);
-                localStorage.setItem('theme', theme);
-                
-                if (this.rendition) {
-                    this.rendition.themes.select(theme);
-                }
+                // Apply theme using the dedicated method
+                this.applyTheme(theme);
             });
         });
 
@@ -1302,60 +1261,27 @@ class EpubReader {
 
     // Add this method to properly track PDF progress
     updatePdfProgress() {
-        // Validate current page
-        if (isNaN(this.currentPdfPage) || this.currentPdfPage < 1) {
-            this.currentPdfPage = 1;
-            console.warn('Invalid current page, resetting to 1');
-        } else if (this.currentPdfPage > this.totalPdfPages) {
-            this.currentPdfPage = this.totalPdfPages;
-            console.warn(`Current page out of range, resetting to ${this.totalPdfPages}`);
-        }
+        if (!this.pdfDoc) return;
         
-        // Calculate progress as a percentage for storage
+        // Calculate progress percentage
         let progressPercentage = this.totalPdfPages > 1 
             ? ((this.currentPdfPage - 1) / (this.totalPdfPages - 1)) * 100 
             : 100;
         
         // Consider book completed at 98% or higher
-        if (progressPercentage >= 98) {
-            progressPercentage = 100;
-        }
+        if (progressPercentage > 98) progressPercentage = 100;
         
-        console.log(`PDF progress: ${progressPercentage.toFixed(2)}% (Page ${this.currentPdfPage}/${this.totalPdfPages})`);
+        // Update progress display
+        this.progressText.textContent = `${Math.floor(progressPercentage)}%`;
+        this.progressFill.style.width = `${progressPercentage}%`;
         
-        // Update progress elements with page numbers for display
-        const progressText = document.getElementById('progress-text');
-        if (progressText) {
-            progressText.textContent = `${this.currentPdfPage} / ${this.totalPdfPages}`;
-        }
-        
-        const progressFill = document.getElementById('progress-fill');
-        if (progressFill) {
-            progressFill.style.width = `${progressPercentage}%`;
-        }
-        
-        // Save progress to storage
-        try {
-            // Get the book ID from URL
-            const urlParams = new URLSearchParams(window.location.search);
-            const bookId = urlParams.get('id');
-            
-            if (bookId) {
-                // Save both the percentage and the page number
-                this.storage.updateProgress(
-                    bookId,
-                    progressPercentage,  // For compatibility with EPUB progress
-                    this.currentPdfPage  // Store the actual page number
-                ).then(() => {
-                    console.log(`Progress saved for book ${bookId}: ${progressPercentage.toFixed(2)}% (Page ${this.currentPdfPage})`);
-                }).catch(error => {
-                    console.error('Error saving progress:', error);
-                });
-            } else {
-                console.warn('No book ID found in URL, progress not saved');
-            }
-        } catch (error) {
-            console.error('Error saving progress:', error);
+        // Save progress if we have a book ID
+        if (this.currentBookId) {
+            this.storage.updateProgress(
+                this.currentBookId,
+                Math.floor(progressPercentage),
+                this.currentPdfPage
+            ).catch(error => console.error('Error saving PDF progress:', error));
         }
     }
 
@@ -1881,6 +1807,164 @@ class EpubReader {
         }
         
         return progress;
+    }
+
+    // Add a new method to apply theme consistently
+    applyTheme(theme) {
+        console.log(`Applying theme: ${theme}`);
+        
+        // Store the current theme
+        this.currentTheme = theme;
+        localStorage.setItem('theme', theme);
+        
+        // Apply theme to document
+        document.documentElement.setAttribute('data-theme', theme);
+        
+        // Apply theme to EPUB content if available
+        if (this.rendition) {
+            console.log('Applying theme to EPUB content');
+            this.rendition.themes.select(theme);
+        }
+        
+        // Apply theme to PDF content if available
+        if (this.currentFormat === 'pdf') {
+            console.log('Applying theme to PDF content');
+            const pdfContainer = document.getElementById('pdf-container');
+            if (pdfContainer) {
+                // Remove all theme classes first
+                pdfContainer.classList.remove('theme-light', 'theme-sepia', 'theme-cream', 'theme-night', 'theme-dark', 'theme-sage');
+                
+                // Add the appropriate theme class
+                pdfContainer.classList.add(`theme-${theme}`);
+                
+                // For dark themes, add the dark-mode class
+                if (theme === 'dark' || theme === 'night') {
+                    pdfContainer.classList.add('dark-mode');
+                } else {
+                    pdfContainer.classList.remove('dark-mode');
+                }
+            }
+        }
+        
+        // Update active class on theme buttons
+        document.querySelectorAll('.theme-option').forEach(option => {
+            if (option.dataset.theme === theme) {
+                option.classList.add('active');
+            } else {
+                option.classList.remove('active');
+            }
+        });
+    }
+
+    // Add a method to set up navigation arrows auto-hide
+    setupNavArrowsAutoHide() {
+        if (!this.navigationControls) {
+            console.warn('Navigation controls not found');
+            return;
+        }
+        
+        console.log('Setting up navigation arrows auto-hide');
+        
+        // Initially show the navigation arrows
+        this.navigationControls.classList.add('visible');
+        this.navArrowsVisible = true;
+        
+        // Set timeout to hide them after delay
+        this.navArrowsTimeout = setTimeout(() => {
+            this.hideNavArrows();
+        }, this.navArrowsHideDelay);
+        
+        // Use document for mouse movement detection to ensure arrows appear 
+        // no matter where on the page the mouse moves
+        document.addEventListener('mousemove', () => {
+            this.showNavArrows();
+        });
+        
+        // Show arrows on touch events anywhere on the document
+        document.addEventListener('touchstart', () => {
+            this.showNavArrows();
+        });
+        
+        // Additional touch events for mobile devices
+        document.addEventListener('touchmove', () => {
+            this.showNavArrows();
+        });
+        
+        document.addEventListener('click', () => {
+            this.showNavArrows();
+        });
+        
+        // Show arrows on scroll events
+        document.addEventListener('scroll', () => {
+            this.showNavArrows();
+        });
+        
+        // Show arrows on keyboard interaction
+        document.addEventListener('keydown', () => {
+            this.showNavArrows();
+        });
+        
+        // Add event listeners to show arrows when hovering over them
+        this.navigationControls.addEventListener('mouseenter', () => {
+            // Clear any existing timeout when hovering over the arrows
+            if (this.navArrowsTimeout) {
+                clearTimeout(this.navArrowsTimeout);
+                this.navArrowsTimeout = null;
+            }
+            this.showNavArrows(false); // Show without setting a timeout
+        });
+        
+        // Hide arrows when mouse leaves the navigation controls
+        this.navigationControls.addEventListener('mouseleave', () => {
+            // Only start the hide timeout if we're not hovering over the arrows
+            this.showNavArrows();
+        });
+        
+        console.log('Navigation arrows auto-hide setup complete');
+    }
+    
+    // Method to show navigation arrows and set a timeout to hide them
+    showNavArrows(setHideTimeout = true) {
+        // Ensure navigation controls exist
+        if (!this.navigationControls) return;
+        
+        // Clear any existing timeout
+        if (this.navArrowsTimeout) {
+            clearTimeout(this.navArrowsTimeout);
+            this.navArrowsTimeout = null;
+        }
+        
+        // Show the arrows if they're hidden
+        if (!this.navArrowsVisible) {
+            console.log('Showing navigation arrows');
+            this.navigationControls.classList.add('visible');
+            this.navArrowsVisible = true;
+        }
+        
+        // Set a timeout to hide the arrows after delay
+        if (setHideTimeout) {
+            this.navArrowsTimeout = setTimeout(() => {
+                this.hideNavArrows();
+            }, this.navArrowsHideDelay);
+        }
+    }
+    
+    // Method to hide navigation arrows
+    hideNavArrows() {
+        // Ensure navigation controls exist
+        if (!this.navigationControls) return;
+        
+        if (this.navArrowsVisible) {
+            console.log('Hiding navigation arrows');
+            this.navigationControls.classList.remove('visible');
+            this.navArrowsVisible = false;
+        }
+        
+        // Clear any existing timeout
+        if (this.navArrowsTimeout) {
+            clearTimeout(this.navArrowsTimeout);
+            this.navArrowsTimeout = null;
+        }
     }
 }
 
