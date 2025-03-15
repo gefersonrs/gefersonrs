@@ -4,6 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EPUB Reader</title>
+    <!-- Add theme initialization script before any CSS loads -->
+    <script>
+        // Immediately apply the saved theme to prevent flash of unstyled content
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            
+            // Add a class to the html element to prevent transitions during page load
+            document.documentElement.classList.add('theme-initializing');
+            
+            // Create and append a style element to prevent flash of white content
+            const style = document.createElement('style');
+            style.textContent = `
+                html.theme-initializing * {
+                    transition: none !important;
+                }
+                
+                /* Hide content until fully loaded */
+                body {
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                }
+                
+                body.loaded {
+                    opacity: 1;
+                }
+            `;
+            document.head.appendChild(style);
+        })();
+    </script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="reader.css">
     <!-- Add PDF.js -->
@@ -17,6 +47,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
+    <!-- Preloader -->
+    <div class="preloader">
+        <div class="spinner"></div>
+    </div>
+    
     <div class="reader-container">
         <div class="top-bar">
             <div class="left-controls">

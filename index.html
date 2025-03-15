@@ -4,6 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Online Reader</title>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            
+            document.documentElement.classList.add('theme-initializing');
+            
+            const style = document.createElement('style');
+            style.textContent = `
+                html.theme-initializing * {
+                    transition: none !important;
+                }
+                
+                body {
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                }
+                
+                body.loaded {
+                    opacity: 1;
+                }
+            `;
+            document.head.appendChild(style);
+        })();
+    </script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="library.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -13,6 +38,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
+    <!-- Preloader -->
+    <div class="preloader">
+        <div class="spinner"></div>
+    </div>
+    
     <div class="app-layout">
         <nav class="sidebar">
             <div class="sidebar-header">

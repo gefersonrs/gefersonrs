@@ -83,20 +83,28 @@ class EpubReader {
     async init() {
         try {
             await this.storage.init();
-            const bookId = new URLSearchParams(window.location.search).get('id');
+            
+            // Get book ID from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const bookId = urlParams.get('id');
+            
             if (!bookId) {
                 throw new Error('No book ID provided in URL');
             }
-            console.log('Attempting to load book with ID:', bookId);
-
+            
+            this.currentBookId = bookId;
+            
+            // Get book data
             const bookData = await this.storage.get(bookId);
-            console.log('Retrieved book data:', bookData ? 'Found' : 'Not found');
             
             if (!bookData) {
                 throw new Error('Book not found in storage');
             }
-
+            
+            // Load the book
             await this.loadBook(bookData);
+            
+            // Bind events after book is loaded
             this.bindEvents();
             
             // Set up navigation arrows auto-hide
@@ -107,11 +115,33 @@ class EpubReader {
                 this.showNavArrows();
             }
             
+            // Apply the current theme
+            const currentTheme = localStorage.getItem('theme') || 'light';
+            this.applyTheme(currentTheme);
+            
+            // Remove the theme initialization class to allow transitions
+            document.documentElement.classList.remove('theme-initializing');
+            
+            // Mark the body as loaded to fade in content and hide preloader
+            const preloader = document.querySelector('.preloader');
+            setTimeout(() => {
+                document.body.classList.add('loaded');
+                if (preloader) preloader.classList.add('hidden');
+            }, 300);
+            
             console.log('Reader initialized');
         } catch (error) {
             console.error('Detailed error in reader initialization:', error);
             console.error('Stack trace:', error.stack);
             this.viewer.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            
+            // Still remove initialization class and show content even if there's an error
+            document.documentElement.classList.remove('theme-initializing');
+            document.body.classList.add('loaded');
+            
+            // Hide preloader even if there's an error
+            const preloader = document.querySelector('.preloader');
+            if (preloader) preloader.classList.add('hidden');
         }
     }
 

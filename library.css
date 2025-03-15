@@ -505,15 +505,26 @@
     margin: 1rem 0 2rem 0;
     display: flex;
     align-items: center;
-    overflow: hidden; /* Hide overflow */
+    overflow: visible; /* Show overflow to ensure buttons are visible */
     padding: 0 50px; /* Add padding for the scroll buttons */
     width: 100%; /* Ensure it doesn't expand beyond container width */
     max-width: 100%; /* Prevent horizontal stretching */
+    min-height: 300px; /* Ensure minimum height for the container */
 }
 
 /* Update the currently reading section */
 #currently-reading-container {
     padding: 1.5rem 0;
+    min-width: 100%; /* Ensure the container takes full width */
+    position: relative; /* Ensure proper positioning */
+}
+
+/* Add a minimum width to ensure there's always something to scroll */
+#currently-reading-container:after {
+    content: '';
+    display: block;
+    min-width: 10px;
+    height: 1px;
 }
 
 /* Hide scrollbar for Webkit browsers */
@@ -537,24 +548,63 @@
     align-items: center;
     justify-content: center;
     transition: all 0.3s ease;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
 .scroll-button.left {
     left: 5px;
 }
 
+/* Add a pulsing animation for the right button */
+@keyframes pulse {
+    0% {
+        transform: translateY(-50%) scale(1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    50% {
+        transform: translateY(-50%) scale(1.1);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    }
+    100% {
+        transform: translateY(-50%) scale(1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+}
+
 .scroll-button.right {
     right: 5px;
+    opacity: 1 !important; /* Force visibility */
+    pointer-events: auto !important; /* Ensure it's clickable */
+    z-index: 20; /* Higher z-index to ensure it's on top */
+    background-color: var(--accent-color); /* Make it more visible */
+    color: white; /* Better contrast */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); /* Enhanced shadow for better visibility */
+    display: flex !important; /* Force display */
+    visibility: visible !important; /* Ensure visibility */
+    animation: pulse 2s infinite ease-in-out; /* Add pulsing animation */
+}
+
+.scroll-button.right:hover {
+    animation: none; /* Stop animation on hover */
+    transform: translateY(-50%) scale(1.15); /* Slightly larger scale on hover */
 }
 
 .scroll-button:hover {
     background-color: var(--accent-color);
     color: white;
+    transform: translateY(-50%) scale(1.1); /* Slightly enlarge on hover while maintaining vertical position */
 }
 
 .scroll-button.hidden {
     opacity: 0;
     pointer-events: none;
+}
+
+/* Override for right button to never be hidden */
+.scroll-button.right.hidden {
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
 /* Style for currently reading books */
@@ -1028,4 +1078,74 @@
     top: 1rem;
     right: 1rem;
     font-size: 0.8rem;
+}
+
+/* Responsive adjustments for scroll buttons */
+@media (max-width: 768px) {
+    .scroll-button {
+        width: 36px;
+        height: 36px;
+    }
+    
+    .scroll-button.right {
+        right: 2px;
+        background-color: var(--accent-color);
+        opacity: 0.9 !important;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    }
+    
+    .currently-reading-wrapper {
+        padding: 0 40px; /* Slightly reduced padding on mobile */
+    }
+}
+
+/* Extra visible button for very small screens */
+@media (max-width: 480px) {
+    .scroll-button.right {
+        width: 40px;
+        height: 40px;
+        right: 5px;
+        opacity: 1 !important;
+        background-color: var(--primary-color);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+    
+    .scroll-button.right i {
+        font-size: 1.2rem;
+    }
+}
+
+/* Add preloader styles */
+.preloader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.preloader.hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: var(--primary-color);
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 } 

@@ -29,11 +29,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fileInput = document.getElementById('file-input');
     const searchInput = document.getElementById('search-input');
     const booksContainer = document.getElementById('books-container');
+    const preloader = document.querySelector('.preloader');
 
+    // Initialize everything before showing the page
     await storage.init();
     await loadBooks();
     updateStats();
     createThemeSelector();
+    initializeScrollButtons();
+
+    // Remove the theme initialization class to allow transitions
+    document.documentElement.classList.remove('theme-initializing');
+    
+    // Mark the body as loaded to fade in content and hide preloader
+    setTimeout(() => {
+        document.body.classList.add('loaded');
+        preloader.classList.add('hidden');
+    }, 300);
 
     // Remove the theme toggle initialization and replace with this
     const currentTheme = localStorage.getItem('theme') || 'light';
@@ -66,8 +78,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     
         updateStats();
 
-        // After loading books, initialize scroll buttons
-        initializeScrollButtons();
+        // Only initialize scroll buttons if this is not the initial page load
+        if (document.body.classList.contains('loaded')) {
+            initializeScrollButtons();
+        }
     }
     
     function createBookCard(book, isCurrentlyReading = false) {
@@ -287,13 +301,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         const leftButton = document.querySelector('.scroll-button.left');
         const rightButton = document.querySelector('.scroll-button.right');
 
+        // Always show the right button initially
+        rightButton.classList.remove('hidden');
+
         function updateScrollButtons() {
             // Show/hide left button based on scroll position
             leftButton.classList.toggle('hidden', container.scrollLeft <= 0);
             
-            // Show/hide right button based on whether there's more content to scroll
-            const maxScroll = container.scrollWidth - container.clientWidth;
-            rightButton.classList.toggle('hidden', container.scrollLeft >= maxScroll);
+            // Always show right button regardless of content
+            rightButton.classList.remove('hidden');
+            
+            // Optional: Only if you want to hide it when at the very end
+            // const maxScroll = container.scrollWidth - container.clientWidth;
+            // if (container.scrollLeft >= maxScroll - 5 && maxScroll > 0) {
+            //     rightButton.classList.add('hidden');
+            // } else {
+            //     rightButton.classList.remove('hidden');
+            // }
         }
 
         // Initial button state
@@ -306,6 +330,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         rightButton.addEventListener('click', () => {
             container.scrollBy({ left: 320, behavior: 'smooth' });
+            // Force update after scroll to ensure button visibility
+            setTimeout(updateScrollButtons, 500);
         });
 
         // Update buttons when scrolling
@@ -313,6 +339,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Update buttons when window resizes
         window.addEventListener('resize', updateScrollButtons);
+        
+        // Force button visibility check after content loads
+        setTimeout(updateScrollButtons, 500);
     }
 
     // Add after the DOMContentLoaded event
