@@ -247,7 +247,16 @@ class EpubReader {
                 flow: this.currentViewMode === 'scrolled' ? 'scrolled-doc' : 'paginated',
                 spread: this.currentViewMode === 'double' ? 'auto' : 'none',
                 minSpreadWidth: 800,
-                manager: 'continuous'
+                manager: 'continuous',
+                allowScriptedContent: true,
+                allowPopups: true,
+                script: true,
+                stylesheet: true,
+                resizeOnOrientationChange: true,
+                spread: 'none',
+                flow: 'scrolled-doc',
+                snap: false,
+                infinite: true
             });
 
             // Set up themes for EPUB content

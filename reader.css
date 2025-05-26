@@ -437,10 +437,34 @@
 /* Viewer area */
 .viewer {
     flex: 1;
+    position: relative;
     overflow: hidden;
     background: var(--bg-color);
-    position: relative;
-    z-index: 1;
+    transition: var(--reader-transition);
+}
+
+.viewer.scrolled-mode {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    height: calc(100vh - 70px); /* Account for top bar height */
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.viewer.scrolled-mode .epub-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: var(--bg-color);
+}
+
+/* Improve scrolling performance */
+.viewer.scrolled-mode * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 }
 
 /* TOC container */
@@ -739,10 +763,6 @@
 }
 
 /* View Modes */
-.viewer.scrolled-mode {
-    overflow-y: auto;
-}
-
 .viewer.paged-mode {
     overflow: hidden;
 }
