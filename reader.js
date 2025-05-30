@@ -40,6 +40,14 @@ class EpubReader {
         this.viewModeButtons = document.querySelectorAll('.mode-button');
         this.navigationControls = document.querySelector('.navigation-controls');
 
+        // Search functionality
+        this.searchToggle = document.getElementById('search-toggle');
+        this.searchPanel = document.getElementById('search-panel');
+        this.closeSearch = document.getElementById('close-search');
+        this.searchInput = document.getElementById('search-input');
+        this.searchButton = document.getElementById('search-button');
+        this.searchResults = document.getElementById('search-results');
+
         // Update theme initialization
         this.currentTheme = localStorage.getItem('theme') || 'light';
         this.applyTheme(this.currentTheme);
@@ -1286,6 +1294,28 @@ class EpubReader {
             });
         }
 
+        // Search functionality
+        this.searchToggle.addEventListener('click', () => {
+            this.searchPanel.classList.add('active');
+            this.searchInput.focus();
+        });
+
+        this.closeSearch.addEventListener('click', () => {
+            this.searchPanel.classList.remove('active');
+            this.searchInput.value = '';
+            this.searchResults.innerHTML = '';
+        });
+
+        this.searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.performSearch(this.searchInput.value);
+            }
+        });
+
+        this.searchButton.addEventListener('click', () => {
+            this.performSearch(this.searchInput.value);
+        });
+
         // Note: Keyboard navigation is now handled in the bindEvents method
     }
 
@@ -2004,6 +2034,208 @@ class EpubReader {
             clearTimeout(this.navArrowsTimeout);
             this.navArrowsTimeout = null;
         }
+    }
+
+    // Method to perform search based on current book format
+    async performSearch(query) {
+        if (!query) {
+            this.searchResults.innerHTML = '<div class="search-result-item">Please enter a search term.</div>';
+            return;
+        }
+
+        this.searchResults.innerHTML = '<div class="search-result-item">Searching...</div>';
+
+        try {
+            let results = [];
+            if (this.currentFormat === 'epub' && this.book) {
+                results = await this.searchEpub(query);
+            } else if (this.currentFormat === 'pdf' && this.pdfDoc) {
+                results = await this.searchPdf(query);
+            } else {
+                this.searchResults.innerHTML = '<div class="search-result-item">No book loaded or unsupported format for search.</div>';
+                return;
+            }
+            this.displaySearchResults(results);
+        } catch (error) {
+            console.error('Search error:', error);
+            this.searchResults.innerHTML = '<div class="search-result-item">Error performing search</div>';
+        }
+    }
+
+    // Method to search within EPUB content
+    async searchEpub(query) {
+        console.log(`Searching EPUB for: "${query}"`);
+        if (!this.book) {
+            console.warn('EPUB book not loaded for search.');
+            return [];
+        }
+
+        try {
+            const allResults = [];
+            
+            // Ensure the book is fully loaded
+            await this.book.ready;
+            
+            // Iterate through all sections in the book
+            await this.book.spine.each(async (section) => {
+                try {
+                    // Load the section content
+                    await section.load();
+                    
+                    // Get the section's content
+                    const content = await section.content();
+                    
+                    // Create a temporary div to parse the HTML content
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = content;
+                    
+                    // Get all text nodes
+                    const textNodes = [];
+                    const walk = document.createTreeWalker(
+                        tempDiv,
+                        NodeFilter.SHOW_TEXT,
+                        null,
+                        false
+                    );
+                    
+                    let node;
+                    while (node = walk.nextNode()) {
+                        textNodes.push(node);
+                    }
+                    
+                    // Search through text nodes
+                    textNodes.forEach(textNode => {
+                        const text = textNode.textContent;
+                        const lowerText = text.toLowerCase();
+                        const lowerQuery = query.toLowerCase();
+                        let index = 0;
+                        
+                        while ((index = lowerText.indexOf(lowerQuery, index)) !== -1) {
+                            // Get context around the match
+                            const start = Math.max(0, index - 50);
+                            const end = Math.min(text.length, index + query.length + 50);
+                            let excerpt = text.substring(start, end);
+                            
+                            // Add ellipses if needed
+                            if (start > 0) excerpt = '...' + excerpt;
+                            if (end < text.length) excerpt = excerpt + '...';
+                            
+                            // Create a CFI for this location
+                            const cfi = new ePub.CFI(textNode, this.book.spine).toString();
+                            
+                            allResults.push({
+                                cfi: cfi,
+                                excerpt: excerpt,
+                                match: query,
+                                section: section.href
+                            });
+                            
+                            index += lowerQuery.length;
+                        }
+                    });
+                } catch (sectionError) {
+                    console.error(`Error searching section ${section.href}:`, sectionError);
+                }
+            });
+            
+            console.log('EPUB search results:', allResults);
+            return allResults;
+        } catch (error) {
+            console.error('Error searching EPUB:', error);
+            return [];
+        }
+    }
+
+    // Method to search within PDF content
+    async searchPdf(query) {
+        console.log(`Searching PDF for: "${query}"`);
+        if (!this.pdfDoc) {
+            console.warn('PDF document not loaded for search.');
+            return [];
+        }
+
+        const lowerCaseQuery = query.toLowerCase();
+        const allResults = [];
+
+        // Iterate through all pages
+        for (let i = 1; i <= this.totalPdfPages; i++) {
+            try {
+                const page = await this.pdfDoc.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ').toLowerCase();
+
+                // Find all occurrences of the query on this page
+                let lastIndex = 0;
+                while ((lastIndex = pageText.indexOf(lowerCaseQuery, lastIndex)) !== -1) {
+                    const start = Math.max(0, lastIndex - 50);
+                    const end = Math.min(pageText.length, lastIndex + query.length + 50);
+                    let excerpt = pageText.substring(start, end);
+
+                    if (start > 0) excerpt = '...' + excerpt;
+                    if (end < pageText.length) excerpt = excerpt + '...';
+
+                    allResults.push({
+                        page: i,
+                        excerpt: excerpt,
+                        match: query,
+                        cfi: i
+                    });
+                    lastIndex += lowerCaseQuery.length;
+                }
+            } catch (error) {
+                console.error(`Error searching PDF page ${i}:`, error);
+            }
+        }
+        console.log('PDF search results:', allResults);
+        return allResults;
+    }
+
+    // Update the displaySearchResults method
+    displaySearchResults(results) {
+        this.searchResults.innerHTML = '';
+
+        if (!results || results.length === 0) {
+            this.searchResults.innerHTML = '<div class="search-result-item">No results found</div>';
+            return;
+        }
+
+        results.forEach(result => {
+            const resultItem = document.createElement('div');
+            resultItem.className = 'search-result-item';
+
+            // Create context with highlighted match
+            const context = result.excerpt.replace(
+                new RegExp(result.match, 'gi'),
+                match => `<span class="highlight">${match}</span>`
+            );
+
+            // Add page number for PDF results or section info for EPUB
+            const locationInfo = this.currentFormat === 'pdf' 
+                ? `<div class="page-info">Page ${result.page}</div>`
+                : result.section ? `<div class="page-info">Section: ${result.section}</div>` : '';
+
+            resultItem.innerHTML = `
+                ${locationInfo}
+                <div class="context">${context}</div>
+            `;
+
+            // Add click handler to navigate to the result
+            resultItem.addEventListener('click', () => {
+                if (this.currentFormat === 'epub') {
+                    this.rendition.display(result.cfi);
+                } else if (this.currentFormat === 'pdf') {
+                    this.currentPdfPage = result.cfi;
+                    this.renderPdfPage(this.currentPdfPage).then(pageElement => {
+                        if (pageElement) {
+                            pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                }
+                this.searchPanel.classList.remove('active');
+            });
+
+            this.searchResults.appendChild(resultItem);
+        });
     }
 }
 

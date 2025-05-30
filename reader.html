@@ -69,6 +69,9 @@
             </div>
 
             <div class="right-controls">
+                <button id="search-toggle" class="control-button" title="Search">
+                    <i class="fas fa-search"></i>
+                </button>
                 <button id="toc-toggle" class="control-button" title="Table of Contents">
                     <i class="fas fa-list"></i>
                 </button>
@@ -76,6 +79,22 @@
                     <i class="fas fa-sliders"></i>
                 </button>
             </div>
+        </div>
+
+        <div class="search-panel" id="search-panel">
+            <div class="search-header">
+                <h3>Search in Book</h3>
+                <button id="close-search" class="close-button">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="search-input-container">
+                <input type="text" id="search-input" placeholder="Search in book...">
+                <button id="search-button" class="control-button">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+            <div id="search-results" class="search-results"></div>
         </div>
 
         <div class="settings-panel" id="settings-panel">
