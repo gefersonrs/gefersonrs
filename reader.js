@@ -261,8 +261,6 @@ class EpubReader {
                 script: true,
                 stylesheet: true,
                 resizeOnOrientationChange: true,
-                spread: 'none',
-                flow: 'scrolled-doc',
                 snap: false,
                 infinite: true
             });
